@@ -4,104 +4,194 @@ from tqdm.notebook import tqdm
 
 LOG_PATH = "C:/Users/Askion/Documents/agmge/log-classification/data/selected"
 PATTERNS = [
-    r"Start -> Timeout: (\d+) ms\s*",
-    r"Exception \((\d+) ms\): TimedOut\s*",
-    r"End -> Bytes read: (\d+)\s*",
+    # HliSession
     r"HliSession::Receive\(\): (\d+\.\d+\.\d+\.\d+):(\d+) - '(.*)' -> (\d*)\s*",
     r"HliSession::Dispose\(\): (\d+\.\d+\.\d+\.\d+):(\d)+ - '(.*)' ->\s?(.*)\s*",
     r"HliSession::Close\(\): (\d+\.\d+\.\d+\.\d+):(\d+) - '(.*)'\s*",
     r"HliSession::Send\(\): (\d+\.\d+\.\d+\.\d+):(\d+) - '.*' ->\s?(.*)\s*",
     r"HliSession::CloseInternal\(\): Close (\d+\.\d+\.\d+\.\d+):(\d+) - '(.*)' ->\s*",
+    r"HliSession::CloseInternal\(\): Close (\d+\.\d+\.\d+\.\d+):(\d+) - '(.*)' ->\s?(.*)\s*",
     r"HliSession::CloseInternal\(\): (\d+\.\d+\.\d+\.\d+):(\d+) - '(.*)' ->\s?(.*)\s*",
-    r"(\d+\.\d+\.\d+\.\d+):(\d+) - '(.*)'\s*",
-    r"End\s*",
-    r"Read (\d+) bytes in \((\d{2}:\d{2}:\d{2}.\d{7})\)\s*",
     r"HliSession::OnSessionClosed\(\): (\d+\.\d+\.\d+\.\d+):(\d+) - '(.*)'\s*",
-    r"(\d+\.\d+\.\d+\.\d+):(\d+) - '(.*)' ->\s?(.*)\s*",
-    r"Start: buffer.Length: (\d+), timeout: (\d+)\s*",
-    r"(False|True) = (False|True)\s*",
+    # HliServer
+    r"HliServer::Dispose\(\): (.+):(\d+) -> (.*)\s*",
+    # SessionFactory
     r"SessionFactory::OpenSession\(\): (\d+\.\d+\.\d+\.\d+):(\d+) - '(.*)' ->\s?(.*)\s*",
     r"SessionFactory::OpenSession\(\): End: (\d+\.\d+\.\d+\.\d+):(\d+) - '(.*)' ->\s?(.*)\s*",
     r"SessionFactory::OpenSession\(\): (\d+\.\d+\.\d+\.\d+):(\d+) - '(.*)'\s*",
-    r"SELECT (.*) FROM (.*) WHERE (.*)\s*",
-    r"SELECT (.*) FROM (.*) where (.*)\s*",
-    r"SELECT (.*) from (.*) WHERE (.*)\s*",
-    r"SELECT (.*) from (.*) where (.*)\s*",
-    r"Select (.*) from (.*) where (.*)\s*",
-    r"Select (.*) from (.*)\s*",
-    r"SELECT (.*) from (.*)\s*",
-    r"SELECT (.*) FROM (.*)\s*",
-    r"SELECT (.*)\s*",
-    r"Select (.*)\s*",
-    r"(True|False)\s*",
-    r"(.+):(\d+) -> (.+) - '(.*)' ///\s?(.*)\s*",
-    r"(.+):(\d+) -> (.+) - '(.*)'\s*",
-    r"(.+):(\d+)\s*",
+
+    # fixed messages (no parameters)
+    r"End\s*",
     r"called\s*",
     r"path not found\s*",
-    r"(\d+\.\d+\.\d+\.\d+\.\d+\.\d+)-->State: (True|False)\s*",
-    r"buffer\.Length: (\d+)\s*",
-    r"TaskStatus: (.*)\s*",
-    r"C_line_Control_Server\.CDIClientManager\s*",
-    r"prc_trackinghistory_device_new\s*",
-    r"prc_system_message_new\s*",
-    r"System\.Net\.Sockets\.TcpClient\s*",
-    r"Return (.*)\s*",
-    r"MessageID: (\d+) MessageType: (.{3})\s*",
-    r"(\d+)\s*",
-    r"System\.AggregateException: One or more errors occurred. --->\s?(.*)\s*",
-    r"send Dewar EMS for: (.*)\s*",
-    r"Exception \((\d+) ms\): ConnectionReset\s*",
-    r"\[is not a valid DBCommand object!\]\s*",
     r"Start Deleting EMSMessages\s*",
-    r"prc_md_ems_message_del\s*",
-    r"cache pending: HLIAcks\[id: (\d*), HliClient: (.*), HliMessageID: (\d*), CdiMessageID: (\d*), SampleID: (\d*), StorageID: (\d*), UserID: (\d*), HliMessageLength: (\d*)]\s*",
-    r"catched SocketException -> SendQueueMessage\(\) get cancelled; SocketErrorCode: ConnectionRefused\s*",
-    r"C_line_Control_Server\.Services\.PushService\s*",
-    r"prc_md_cachependingpush\s*",
-    r"prc_trackingerror_new\s*",
-    r"C_line_Control_Server\.Services\.PushService\s*",
-
-    r"CLineCommon_CCIMessage\.(\w+)\s*",
-    r"CLineCommon_CCIMessage\.(\w+) -> Askion\.CLine\.Common\.Security\.AuthenticateAttribute\s*",
-    r"ClinePrincipal: Identity \[ClineIdentity: UserId \[(\d+)\], Name \[(.*)\], AuthenticationType \[(.*)\]\], HSLevel \[(\d+)\] -> CLineCommon_CCIMessage\.(\w+)\s*",
-    r"ClinePrincipal: Identity \[ClineIdentity: UserId \[(\d+)\], Name \[(.*)\], AuthenticationType \[(.*)\]\], HSLevel \[(\d+)\] -> CLineCommon_CCIMessage\.(\w+) \((\d+)\)\s*",
-    r"MessageID: (\d+) MessageType: (.*)\s*",
+    r"\[is not a valid DBCommand object!\]\s*",
     r"Calling DBRequestFinished\s*",
     r"entered\s*",
-    r"\?<\?xml version=\"1.0\" encoding=\"utf-8\"\?>(.*)\s*",
-    r"Got Client: (\d+\.\d+\.\d+\.\d+):(\d+) for MsgId: (\d+)\s*",
-    r"stream\.Write MessageLength: (\d+)\s*",
     r"stream\.Written\s*",
     r"DBRequestFinished finished\s*",
+    r"Message set to Response\s*",
+    r"HS200L_REFERENZ\s*",
+    r"ExKrA_Ref\s*",
+    r"Stop\s*",
+    r"Start\s*",
+    r"LV7005072003\s*",
+    r"ReportBatch: called\s*",
+    r"Connected to DB successfully\.\s*",
+    r"CCServerAppContext::Process_CustomSearchSamples\(\): called\s*",
+    # prc
+    r"prc_md_cachependingpush\s*",
+    r"prc_trackingerror_new\s*",
+    r"prc_md_ems_message_del\s*",
+    r"prc_user_login\s*",
+    r"prc_update_dewar_timer\s*",
+    r"prc_md_wizardsettings\s*",
+    r"prc_md_cachependingcdi_new\s*",
+    r"prc_v_device\s*",
+    r"prc_dewar_use_new\s*",
+    r"prc_trackinghistory_device_new\s*",
+    r"prc_system_message_new\s*",
+    r"prc_md_cachependingcdi_del\s*",
+    r"prc_dewar_use_del\s*",
+    r"prc_batch_finished\s*",
+    r"prc_getLastSampleAction\s*",
+    r"prc_reset_storage\s*",
+    r"prc_batch_del\s*",
+    
+    # SQL
+    r"\s*SELECT (.*) FROM (.*) WHERE (.*)\s*",
+    r"\s*SELECT (.*) FROM (.*) where (.*)\s*",
+    r"\s*SELECT (.*) from (.*) WHERE (.*)\s*",
+    r"\s*SELECT (.*) from (.*) where (.*)\s*",
+    r"\s*Select (.*) from (.*) where (.*)\s*",
+    r"\s*Select (.*) from (.*)\s*",
+    r"\s*SELECT (.*) from (.*)\s*",
+    r"\s*SELECT (.*) FROM (.*)\s*",
+    r"\s*SELECT (.*)\s*",
+    r"\s*Select (.*)\s*",
 
-    r"(\d+\.\d+\.\d+\.\d+):(\d+) -> RanToCompletion\s*",
+    # IP Adresses
+    r"(.+):(\d+) -> (.+) - '(.*)'\s*",
+    r"(.+):(\d+) -> (.+) - '(.*)' ///\s?(.*)\s*",
+    r"(.+):(\d+) -> (.+)\s*",
+    r"(.+):(\d+) -> (.+) ///\s?(.*)\s*",
+    r"(.+):(\d+)\s*",
+    r"(.+):(\d+) ->\s*",
+    r"(.+):(\d+) - '(.*)' ->\s?(.*)\s*",
+    r"(.+):(\d+) - '(.*)'\s*",
+    r"(\d+\.\d+\.\d+\.\d+):(\d+) -> (.*)\s*",
     r"\((\d+\.\d+\.\d+\.\d+):(\d+)\) read (\d+) bytes in \((\d{2}:\d{2}:\d{2}.\d{7})\)\s*",
     r"\((\d+\.\d+\.\d+\.\d+):(\d+)\) read complete (\d+) bytes in \((\d{2}:\d{2}:\d{2}.\d{7})\)\s*",
-
-    r"called --> Sender (\d+\.\d+\.\d+\.\d+\.\d+\.\d+)\s*",
-    r"Read Message TITemperatureEvent \[Date: (.*), Tempertures: \[CryoVessel_1: (-?\d+\.\d+), CryoVessel_2: (-?\d+\.\d+), CryoVessel_3: (-?\d+\.\d+), RackRoom: (-?\d+), WorkingRoom: (-?\d+\.\d+)\], SamplePosition: \[RackRing: (\d+), Rack: (\d+), Tray: (\d+), Column: (\d+), Row: (\d+), SbsRackColumn: (\d+), SbsRackRow: (\d+), InsertColumn: (\d+), InsertRow: (\d+)\], MessageSize: (\d+)\s*",
-    r"Read Message \[Date: (.*), Temperatures:[WorkingRoomCold: (-?\d+\.\d+), WorkingRoomWarm: (-?\d+\.\d+), Interim: (-?\d+\.\d+)], MessageSize:(\d+)]\s*",
+    #
     r"(.+):(\d+): (\d+\.\d+\.\d+\.\d+):(\d+) - 'HS200_03028'\s*",
+    r"(.+):(\d+): (.+) -> (.+)\s*",
+    
+    # Reads
+    r"Read (\d+) bytes in \((\d{2}:\d{2}:\d{2}.\d{7})\)\s*",
+    r"Start: buffer.Length: (\d+), timeout: (\d+)\s*",
+    r"buffer\.Length: (\d+)\s*",
+    r"Start -> Timeout: (\d+) ms\s*",
+    r"End -> Bytes read: (\d+)\s*",
+    # Status
+    r"TaskStatus: (.*)\s*",
+    r"(\d+\.\d+\.\d+\.\d+\.\d+\.\d+)-->State: (True|False)\s*",
+    r"(False|True) = (False|True)\s*",
+    r"(True|False)\s*",
+    r"LV7005072003 -->StorageState: (.*)\s*",
+
+    # Classes
+    r"System\.Net\.Sockets\.TcpClient\s*",
+    r"CLineCommon_CCIMessage\.(\w+)\s*",
+    r"CLineCommon_CCIMessage\.(\w+) -> Askion\.CLine\.Common\.Security\.AuthenticateAttribute\s*",
+    r"Askion\.CLine\.(.+)\s*",
+    r"C_line_Common\.(.+)\s*",
+    # C_line_Control_Server
+    r"C_line_Control_Server\.CDIClientManager\s*",
+    r"C_line_Control_Server\.Services\.PushService\s*",
+    r"C_line_Control_Server\.Services\.PushService\s*",
+    #
+    r"C_line_Control_Server\.(.+) -> <\?xml.*\?>(.*)\s*",
+    r"C_line_Control_Server\.(.+) ->\s?(.*)\s*",
+    
+    # Messages
+    r"Read Message TITemperatureEvent \[Date: (.*), Tempertures: \[CryoVessel_1: (-?\d+\.?\d*), CryoVessel_2: (-?\d+\.?\d*), CryoVessel_3: (-?\d+\.?\d*), RackRoom: (-?\d+\.?\d*), WorkingRoom: (-?\d+\.?\d*)\], SamplePosition: \[RackRing: (\d+), Rack: (\d+), Tray: (\d+), Column: (\d+), Row: (\d+), SbsRackColumn: (\d+), SbsRackRow: (\d+), InsertColumn: (\d+), InsertRow: (\d+)\], MessageSize: (\d+)\s*",
+    r"Read Message \[Date: (.*), Temperatures:\[WorkingRoomCold: (-?\d+\.?\d*), WorkingRoomWarm: (-?\d+\.?\d*), Interim: (-?\d+\.?\d*)\], MessageSize:(\d+)\]\s*",
+    #
+    r"Read Message SystemMessage \[Date: (.*), MessageID: (.*), Message: (.*), ResetMessage:\d Button1: , Button2: , Button3: , Category: (.*), Size: (\d+)\s*",
+    r"SystemMessage \[Date: (.*), MessageID: (.*),  Size: (\d+)\s*",
+    #
+    r"Device: (.*) Message: \[Rack1: (.*); Rack2: (.*), SampleFormat: (.*), Operator: (.*); TRGBarcode: (.*); Storagemode: (.*) MessageSize: (\d+)\s*",
+    #
+    r"Message ->\[Rack1: (.*); Rack2: (.*), SampleFormat: (.*), Operator: (.*); TRGBarcode: (.*); Storagemode: (.*) MessageSize: (\d+)\s*",
+    r"Message ->\[Date: (.*), MessageID: (.*), PailID: (.*), ExKrADestinations: \[\[DestinationID: (.*), DestinationType: (.*), EstimatedDuration: (.*), Sequence: (.*)]; \[DestinationID: (.*), DestinationType: (.*), EstimatedDuration: (.*), Sequence: (.*)\]\] MessageSize: (.*)\]\s*",
+    #
+    r"\[DewarName: (.*), Position: (.*), State: (.*), MessageSize: (\d+)\]\s*",
+    #
+    r"MessageID: (\d+) MessageType: (.+)\s*",
+
+    # calls and updates
+    r"update (.*) with (.*)\s*",
+    r"called:\s?(.+)\s*",
+    r"called (.+)\s*",
+    r"called, path:(.*) delemiter:(.*), decimalseparator:(.*)\s*",
+    r"called --> Sender (\d+\.\d+\.\d+\.\d+\.\d+\.\d+)\s*",
+    
+    # xml
+    r"(Send|Receive)\s?:\s?\?+<\?xml.*\?>(.*)\s*",
+    r"\?+<\?xml.*\?>(.*)\s*",
+
+    # Exceptions
+    r"Exception \((\d+) ms\): ConnectionReset\s*",
+    r"Exception \((\d+) ms\): TimedOut\s*",
+    r"catched SocketException -> SendQueueMessage\(\) get cancelled; SocketErrorCode: ConnectionRefused\s*",
+    r"System\.AggregateException: One or more errors occurred\. --->\s?(.*)\s*",
+    r"Exception: System\.AggregateException: One or more errors occurred\. --->\s?(.*)\s*",
+    r"(.+):(\d+) Exception: System\.AggregateException: One or more errors occurred. --->\s?(.*)\s*",
+    r"(.+):(\d+) System\.AggregateException: One or more errors occurred. --->\s?(.*)\s*",
+    r"System.ObjectDisposedException: .*\s*",
+
+    # misc
+    r"(\d+)\s*", # number
+    r"{(\d+)}\s*", # number in curly brackets
+    r"(\d) -> (\d)\s*", # digit -> digit
+    r"(\w):\\(.*)\s*", # path
+    r"Return (.*)\s*",
+    r"timer removed: (.*)\s*",
+
+    # dewar
+    r"Stop --- finished (.+) ---\s*",
+    r"differnceHours: (-?\d+\.?\d*) for dewarTimer: (.+)\s*",
+    r"UpdateDewarTimer for dewar: --> (.*)\s*"
+    r"send Dewar EMS for: (.*)\s*",
+
+    
+    
+    
+    r"C-line Control Server, Version=(.+), Culture=(.+), PublicKeyToken=(.+) started \[(\w):\\(.*)C-line Control Server\.exe\]\s*",
+    r"ClinePrincipal: Identity \[ClineIdentity: UserId \[(\d+)\], Name \[(.*)\], AuthenticationType \[(.*)\]\], HSLevel \[(\d+)\] -> CLineCommon_CCIMessage\.(\w+)\s*",
+    r"ClinePrincipal: Identity \[ClineIdentity: UserId \[(\d+)\], Name \[(.*)\], AuthenticationType \[(.*)\]\], HSLevel \[(\d+)\] -> CLineCommon_CCIMessage\.(\w+) \((\d+)\)\s*",
+    r"HS Level : \(ushort\)principal.HermeticStorageLevel\s*",
+    # Client
+    r"Got Client: (\d+\.\d+\.\d+\.\d+):(\d+) for MsgId: (\d+)\s*",
+    r"Feiled to get client for MsgId: (\d+)\s*",
+    r"Clients: Push (.*):(.*)\s*",
+    r"\[Date: (.*), UserName: (.+)\]\s*",
+    
+    r"cache pending: HLIAcks\[id: (\d*), HliClient: (.*), HliMessageID: (\d*), CdiMessageID: (\d*), SampleID: (\d*), StorageID: (\d*), UserID: (\d*), HliMessageLength: (\d*)]\s*",
+    r"stream\.Write MessageLength: (\d+)\s*",
+    r"check ExkraId: (\d+)\s*"
+    r"Send -> CDIGetCachingSBS To -> (.*):(\d+) Response -> \[Rack1: (.*); Rack2: (.*), SampleFormat: (.*), Operator: (.*); TRGBarcode: (.*); Storagemode: (.*) MessageSize: (\d+)\s*",
+    r"Send -> NewJobRequest To -> (.*):(\d+) Response -> \[Date: (.*), OrderID: (.*), ExKraError: (.*) MessageSize: (\d+)\]\s*",
+    r"operation '(.*)' \((.*)\) -> user 'A' \(Create, Edit, Depleted, Delete, Details, Store, Retrieve, Freeze, Search, Reporting\)\s*",
 ]
+
+
+
+
 
 """
 r"\s*",
-
-
-called: HS200_03028
-
-called CheckCoolingScheduleAfterReconnect
-
-GERS229:40004 -> HS200_03028 /// <ASKION_C-LINE_HLI><VERSION V="3.50" /><MESSAGE MES="TSY" NUM="12619" CID="GERS229" REC="HS200_03028" TIM="2024-11-27T00:08:31" /></ASKION_C-LINE_HLI>
-
-GERS229:40004 -> HS200_03028 /// <ASKION_C-LINE_HLI><VERSION V="3.50" /><MESSAGE MES="ACK" NUM="12619" CID="HS200_03028" RES="EOK" OMT="TSY" /></ASKION_C-LINE_HLI> /// <ASKION_C-LINE_HLI><VERSION V="3.50" /><MESSAGE MES="TSY" NUM="12619" CID="GERS229" REC="HS200_03028" TIM="2024-11-27T00:08:31" /></ASKION_C-LINE_HLI>
-
-GERS229:40004: HS200_03028 -> <ASKION_C-LINE_HLI><VERSION V="3.50" /><MESSAGE MES="ACK" NUM="12619" CID="HS200_03028" RES="EOK" OMT="TSY" /></ASKION_C-LINE_HLI> /// <ASKION_C-LINE_HLI><VERSION V="3.50" /><MESSAGE MES="TSY" NUM="12619" CID="GERS229" REC="HS200_03028" TIM="2024-11-27T00:08:31" /></ASKION_C-LINE_HLI>
-
-GERS229:40004 -> HS200_03028 /// <ASKION_C-LINE_HLI><VERSION V="3.50" /><MESSAGE MES="PUL" NUM="12620" CID="GERS229" REC="HS200_03028" /><USERS><USER NAM="ASKION" PWD="BSXN" SIL="99" /><USER NAM="ADMIN" PWD="@ELHO" SIL="99" /><USER NAM="PK" PWD="QJ" SIL="99" /><USER NAM="A" PWD="@" SIL="99" /><USER NAM="B" PWD="C" SIL="99" /><USER NAM="Z" PWD="[" SIL="99" /><USER NAM="Ako" PWD="`jn" SIL="49" /><USER NAM="T" PWD="U" SIL="49" /><USER NAM="C" PWD="B" SIL="99" /><USER NAM="Y" PWD="X" SIL="99" /></USERS></ASKION_C-LINE_HLI>
-
-GERS229:40004 -> HS200_03028 /// <ASKION_C-LINE_HLI><VERSION V="3.50" /><MESSAGE MES="ACK" NUM="12620" CID="HS200_03028" RES="EOK" OMT="PUL" /></ASKION_C-LINE_HLI> /// <ASKION_C-LINE_HLI><VERSION V="3.50" /><MESSAGE MES="PUL" NUM="12620" CID="GERS229" REC="HS200_03028" /><USERS><USER NAM="ASKION" PWD="BSXN" SIL="99" /><USER NAM="ADMIN" PWD="@ELHO" SIL="99" /><USER NAM="PK" PWD="QJ" SIL="99" /><USER NAM="A" PWD="@" SIL="99" /><USER NAM="B" PWD="C" SIL="99" /><USER NAM="Z" PWD="[" SIL="99" /><USER NAM="Ako" PWD="`jn" SIL="49" /><USER NAM="T" PWD="U" SIL="49" /><USER NAM="C" PWD="B" SIL="99" /><USER NAM="Y" PWD="X" SIL="99" /></USERS></ASKION_C-LINE_HLI>
+MessageID: 27050 MessageType: DBSystemMessageList
 
 """
 
@@ -205,7 +295,7 @@ def parse_logfile(path: str):
 
     events = []
     while lines:
-        line = lines[0].strip("\n ")
+        line = lines[0].strip("\n")
 
         # if this is the start of an event, create a new event
         parts = line.split(" | ")
