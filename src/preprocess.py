@@ -48,7 +48,7 @@ def load_logfile(path: str, track_progress: bool = False) -> list[dict]:
     return events
 
 
-def annotate_data(events: list[dict], window: int = 10, track_progress: bool = False):
+def annotate_data(events: list[dict], prev_logs: int = 3, next_logs: int = 3, max_logs_per_class: int = 5, track_progress: bool = False):
     """
     annotates data by adding a "state" key to every event.
     Currently data is categorized into 4 categories: 
@@ -70,17 +70,20 @@ def annotate_data(events: list[dict], window: int = 10, track_progress: bool = F
 
     event_seq = []
 
-    states = defaultdict(int)
+    states_counts = defaultdict(int)
     for i, event in enumerate(events):
         if track_progress: progress.update(1)
-        if event["log_level"] == "Fatal":
-            lower = i-round(10/2)
-            upper = i+round(10/2)
-            seq = events[lower:upper]
-            event_seq.append((seq, "fatal"))
 
-            states["fatal"] += 1
+        lower = i-prev_logs
+        upper = i+next_logs
+        if lower < 0 or upper >= len(events): continue
+        seq = events[lower:upper]
+
+        if states_counts["fatal"] < max_logs_per_class and  event["log_level"] == "Fatal":
+            event_seq.append((seq, "fatal"))
+            states_counts["fatal"] += 1
             continue
+        
         elif event["log_level"] == "Error":
             if "DBProxyMySQL" in event["function"] or "DBManager" in event["function"]:
                 event["state"] = "database"
