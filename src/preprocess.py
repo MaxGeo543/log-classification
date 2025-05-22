@@ -1,6 +1,9 @@
 import re
 from tqdm import tqdm
 from collections import defaultdict
+from states import States as S
+import datetime
+from keras.layers import TextVectorization
 
 def load_logfile(path: str, track_progress: bool = False) -> list[dict]:
     """
@@ -47,16 +50,10 @@ def load_logfile(path: str, track_progress: bool = False) -> list[dict]:
     # return the list of events
     return events
 
-
-def annotate_data(events: list[dict], prev_logs: int = 3, next_logs: int = 3, max_logs_per_class: int = 5, track_progress: bool = False):
+def annotate_data(events: list[dict], window_size: int = 20, max_logs_per_class: int = 100, annotated: tuple[list,defaultdict]|None = None, track_progress: bool = False) -> tuple[list,defaultdict]:
     """
     annotates data by adding a "state" key to every event.
-    Currently data is categorized into 4 categories: 
-        - normal
-        - fatal
-        - database
-        - connection
-    based on simple pattern matching.
+    Data is categorized into States defined in states.py based on simple pattern matching.
 
     Args:
         events (list): list of events as returned by load_logfile.
@@ -68,59 +65,113 @@ def annotate_data(events: list[dict], prev_logs: int = 3, next_logs: int = 3, ma
     # initialize tracker for progress
     if track_progress: progress = tqdm(total=len(events), desc="annotating events")
 
-    event_seq = []
+    event_seq = [] if annotated is None else annotated[0]
+    states_counts = defaultdict(int) if annotated is None else annotated[1]
 
-    states_counts = defaultdict(int)
-    for i, event in enumerate(events):
+
+    for i in range(window_size, len(events)):
         if track_progress: progress.update(1)
+        seq = events[(i-window_size):i]
+        last_event = seq[-1]
 
-        lower = i-prev_logs
-        upper = i+next_logs
-        if lower < 0 or upper >= len(events): continue
-        seq = events[lower:upper]
-
-        if states_counts["fatal"] < max_logs_per_class and  event["log_level"] == "Fatal":
-            event_seq.append((seq, "fatal"))
-            states_counts["fatal"] += 1
+        s = None
+        if last_event["function"] == "C_line_Control_Server.CCServerAppContext.TaskSchedulerUnobservedTaskException":
+            if states_counts[S.UnobservedException] >= max_logs_per_class: continue
+            
+            event_seq.append((seq, S.UnobservedException))
+            states_counts[S.UnobservedException] += 1
             continue
         
-        elif event["log_level"] == "Error":
-            if "DBProxyMySQL" in event["function"] or "DBManager" in event["function"]:
-                event["state"] = "database"
-                states["database"] += 1
+        elif last_event["log_level"] == "Error":
+            if "DBProxyMySQL" in last_event["function"] or "DBManager" in last_event["function"]:
+                if states_counts[S.DatabaseError] >= max_logs_per_class: continue
+                
+                event_seq.append((seq, S.DatabaseError))
+                states_counts[S.DatabaseError] += 1
                 continue
-            elif "OnCDILogin" in event["function"]:
-                event["state"] = "connection"
-                states["connection"] += 1
+
+            elif "OnCDILogin" in last_event["function"]:
+                if states_counts[S.CDILoginError] >= max_logs_per_class: continue
+                
+                event_seq.append((seq, S.CDILoginError))
+                states_counts[S.CDILoginError] += 1
                 continue
-            else:
-                event["state"] = "normal"
-                states["normal"] += 1
+            
+            elif "SessionFactory.OpenSession" in last_event["function"]:
+                if states_counts[S.HliSessionError] >= max_logs_per_class: continue
+                
+                event_seq.append((seq, S.HliSessionError))
+                states_counts[S.HliSessionError] += 1
                 continue
+
         else:
-            event["state"] = "normal"
-            states["normal"] += 1
+            if states_counts[S.Normal] >= max_logs_per_class: continue
+                
+            event_seq.append((seq, S.Normal))
+            states_counts[S.Normal] += 1
+            continue
     
-    return events, states
+    return events, states_counts
 
-def reduce_data(events: list[dict]):
-    pass
 
+
+
+
+from keras.layers import TextVectorization
+
+# Flatten all log messages from all sequences
+all_log_messages = [event['log_message'] for seq in data for event in seq]
+
+# Create and adapt the vectorizer
+text_vectorizer = TextVectorization(
+    max_tokens=10000,
+    output_mode='int',
+    output_sequence_length=1  # We use 1 token per message
+)
+text_vectorizer.adapt(all_log_messages)
+
+
+
+
+LOG_LEVEL_MAP = {'Trace': 0, 'Debug': 1, 'Info': 2, 'Warn': 3, 'Error': 4, 'Fatal': 5}
+
+def extract_date_time_features(dt: datetime):
+    # Normalize date as days since epoch
+    date_feature = (dt.date() - datetime(1970, 1, 1).date()).days
+    # Time in seconds since midnight
+    time_feature = dt.hour * 3600 + dt.minute * 60 + dt.second
+    return date_feature, time_feature
+
+def pre_process(seq, function_encoder, tokenizer):
+    processed = []
+    for ev, state in seq:
+        date, time = extract_date_time_features(datetime.datetime.fromisoformat(ev["timestamp"]))
+        log_level = LOG_LEVEL_MAP[ev['log_level']]
+        function_id = function_encoder.transform([ev['function']])[0]
+        log_msg_token = tokenizer.texts_to_sequences([ev['log_message']])[0]
+        msg_token_id = log_msg_token[0] if log_msg_token else 0
+        processed.append([time_delta, log_level, function_id, msg_token_id])
+    return processed
 
 if __name__ == "__main__":
-    for n in range(745, 760):
+    annotated, states_counts = [], defaultdict(int)
+    logs_per_class = 100
+    window_size = 20
+
+    log_file_numbers =  list(range(745, 760))
+
+    for n in log_file_numbers:
         file_path = f"./data/CCI/CCLog-backup.{n}.log"
 
+        print(f"Current log file: {file_path}")
         events = load_logfile(file_path, True)
-        events, states = annotate_data(events, True)
+        annotated, states_counts = annotate_data(events, window_size, logs_per_class, (annotated, states_counts), True)
+        print(f"Current State counts:")
+        for k, v in states_counts.items(): print(f"  - {k} : {v}")
 
-        fatal = states['fatal']
-        normal = states['normal']
-        database = states['database']
-        connection = states['connection']
-        print(f"file: {file_path}")
-        print(f"normal: {normal} ({100*normal/len(events)}%)")
-        print(f"database: {database} ({100*database/len(events)}%)")
-        print(f"connection: {connection} ({100*connection/len(events)}%)")
-        print(f"fatal: {fatal} ({100*fatal/len(events)}%)")
-        print()
+        if all(v == logs_per_class for v in states_counts.values()):
+            print(f"All states have the desired log count")
+            break
+    
+
+    preprocessed_data = pre_process(annotated, function_encoder)
