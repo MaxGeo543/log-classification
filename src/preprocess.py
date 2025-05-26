@@ -165,17 +165,40 @@ class Preprocessor:
             date, time = self.extract_date_time_features(datetime.datetime.fromisoformat(last_event["timestamp"]))
             log_level = LOG_LEVEL_MAP[last_event['log_level']]
             function_id = function_encoder.transform([last_event['function']])[0]
-            log_msg_token = tokenizer.texts_to_sequences([last_event['log_message']])[0]
+            log_msg_token = tokenizer([last_event['log_message']])[0]
             msg_token_id = log_msg_token[0] if log_msg_token else 0
             processed.append([date, time, log_level, function_id, msg_token_id, state])
         return processed
+    
+    def _p(self):
+        processed = []
+        tokenizer = self.get_log_message_encoder()
+        function_encoder = self.get_function_encoder()
 
-    def extract_date_time_features(self, dt: datetime):
+        for ev_seq, state in self.annotated:
+            sequence_features = []
+
+            for ev in ev_seq:
+                dt = datetime.datetime.fromisoformat(ev["timestamp"])
+                date, time = self.extract_date_time_features(dt)
+                log_level = LOG_LEVEL_MAP.get(ev['log_level'], 0)
+                function_id = function_encoder.transform([ev['function']])[0]
+                log_msg_token = tokenizer([ev['log_message']])
+                log_msg_token_id = log_msg_token[0] if log_msg_token else 0
+
+                sequence_features.append([date, time, log_level, function_id, log_msg_token_id])
+
+            processed.append((sequence_features, state))
+
+        return processed
+
+    def extract_date_time_features(self, dt: datetime.datetime):
         # Normalize date as days since epoch
         date_feature = (dt.date() - datetime.datetime(1970, 1, 1).date()).days
 
         # Time in seconds since midnight
         time_feature = dt.hour * 3600 + dt.minute * 60 + dt.second
+        # print(date_feature, time_feature)
 
         return date_feature, time_feature
 
@@ -183,6 +206,7 @@ class Preprocessor:
         text_vectorizer = TextVectorization(
             max_tokens=10000,
             output_mode='int',
+            pad_to_max_tokens=True,
             output_sequence_length=1  # We use 1 token per message
         )
         
@@ -203,6 +227,6 @@ class Preprocessor:
 
 if __name__ == "__main__":
     pp = Preprocessor([i for i in range(745, 760)], volatile=True)
-    data = pp.pre_process()
+    data = pp._p()
 
     print(data[0])
