@@ -1,12 +1,19 @@
 import re
-from tqdm import tqdm
+try:
+    get_ipython()  # Only defined in IPython/Jupyter environments
+    from tqdm.notebook import tqdm
+except (NameError, ImportError):
+    from tqdm import tqdm
+    
 from collections import defaultdict
 from states import States as S
 import datetime
 from keras.layers import TextVectorization
 from sklearn.preprocessing import LabelEncoder
+from util import *
+import random
 
-LOG_PATH = "./data/CCI/CCLog-backup.{n}.log"
+LOG_PATH = "C:/Users/Askion/Documents/agmge/log-classification/data/CCI/CCLog-backup.{n}.log"
 LOG_LEVEL_MAP = {'Trace': 0, 'Debug': 1, 'Info': 2, 'Warn': 3, 'Error': 4, 'Fatal': 5}
 
 
@@ -159,21 +166,6 @@ class Preprocessor:
         processed = []
         tokenizer = self.get_log_message_encoder()
         function_encoder = self.get_function_encoder()
-        for ev, state in self.annotated:
-            last_event = ev[-1]
-            
-            date, time = self.extract_date_time_features(datetime.datetime.fromisoformat(last_event["timestamp"]))
-            log_level = LOG_LEVEL_MAP[last_event['log_level']]
-            function_id = function_encoder.transform([last_event['function']])[0]
-            log_msg_token = tokenizer([last_event['log_message']])[0]
-            msg_token_id = log_msg_token[0] if log_msg_token else 0
-            processed.append([date, time, log_level, function_id, msg_token_id, state])
-        return processed
-    
-    def _p(self):
-        processed = []
-        tokenizer = self.get_log_message_encoder()
-        function_encoder = self.get_function_encoder()
 
         for ev_seq, state in self.annotated:
             sequence_features = []
@@ -186,9 +178,11 @@ class Preprocessor:
                 log_msg_token = tokenizer([ev['log_message']])
                 log_msg_token_id = log_msg_token[0] if log_msg_token else 0
 
-                sequence_features.append([date, time, log_level, function_id, log_msg_token_id])
+                feature_vector = [date, time, log_level, function_id, log_msg_token_id]
+                flat_feature = np.concatenate([to_flat_array(f) for f in feature_vector])
+                sequence_features.append(flat_feature)
 
-            processed.append((sequence_features, state))
+            processed.append((np.array(sequence_features), state))
 
         return processed
 
@@ -223,10 +217,32 @@ class Preprocessor:
 
         return function_encoder
 
+    def stratified_split(self, test_ratio=0.2, seed=42):
+        random.seed(seed)
+        class_buckets = defaultdict(list)
 
+        data = self.pre_process()
+
+        # Group samples by class
+        for x, y in data:
+            class_buckets[y].append((x, y))
+
+        train_data, test_data = [], []
+
+        for class_label, samples in class_buckets.items():
+            random.shuffle(samples)
+            split_idx = int(len(samples) * (1 - test_ratio))
+            train_data.extend(samples[:split_idx])
+            test_data.extend(samples[split_idx:])
+
+        # Optionally shuffle the final datasets
+        random.shuffle(train_data)
+        random.shuffle(test_data)
+
+        return train_data, test_data
 
 if __name__ == "__main__":
     pp = Preprocessor([i for i in range(745, 760)], volatile=True)
-    data = pp._p()
+    data = pp.pre_process()
 
     print(data[0])
