@@ -12,6 +12,7 @@ from keras.layers import TextVectorization
 from sklearn.preprocessing import LabelEncoder
 from util import *
 import random
+from message_encoder import *
 
 LOG_PATH = "C:/Users/Askion/Documents/agmge/log-classification/data/CCI/CCLog-backup.{n}.log"
 LOG_LEVEL_MAP = {'Trace': 0, 'Debug': 1, 'Info': 2, 'Warn': 3, 'Error': 4, 'Fatal': 5}
@@ -25,8 +26,9 @@ LOG_LEVEL_MAP = {'Trace': 0, 'Debug': 1, 'Info': 2, 'Warn': 3, 'Error': 4, 'Fata
 class Preprocessor:
     def __init__(self, 
                  log_numbers: list[int], 
+                 message_encoder:  MessageEncoder,
                  logs_per_class: int = 100,
-                 window_size: int = 20, 
+                 window_size: int = 20,
                  volatile: bool = False):
         self.volatile = volatile
 
@@ -34,6 +36,7 @@ class Preprocessor:
         self.states_counts = defaultdict(int)
         self.logs_per_class = logs_per_class
         self.window_size = window_size
+        self.message_encoder = message_encoder
 
         
         for n in log_numbers:
@@ -164,7 +167,7 @@ class Preprocessor:
 
     def pre_process(self):
         processed = []
-        tokenizer = self.get_log_message_encoder()
+        self.message_encoder.initialize(event['log_message'] for seq in self.annotated for event in seq[0])
         function_encoder = self.get_function_encoder()
 
         for ev_seq, state in self.annotated:
@@ -175,10 +178,10 @@ class Preprocessor:
                 date, time = self.extract_date_time_features(dt)
                 log_level = LOG_LEVEL_MAP.get(ev['log_level'], 0)
                 function_id = function_encoder.transform([ev['function']])[0]
-                log_msg_token = tokenizer([ev['log_message']])
-                log_msg_token_id = log_msg_token[0] if log_msg_token else 0
+                log_msg_token = self.message_encoder.encode([ev['log_message']])
+                # log_msg_token_id = log_msg_token[0] if log_msg_token else 0
 
-                feature_vector = [date, time, log_level, function_id, log_msg_token_id]
+                feature_vector = [date, time, log_level, function_id, log_msg_token]
                 flat_feature = np.concatenate([to_flat_array(f) for f in feature_vector])
                 sequence_features.append(flat_feature)
 
@@ -195,19 +198,6 @@ class Preprocessor:
         # print(date_feature, time_feature)
 
         return date_feature, time_feature
-
-    def get_log_message_encoder(self):
-        text_vectorizer = TextVectorization(
-            max_tokens=10000,
-            output_mode='int',
-            pad_to_max_tokens=True,
-            output_sequence_length=1  # We use 1 token per message
-        )
-        
-        all_log_messages = [event['log_message'] for seq in self.annotated for event in seq[0]]
-        text_vectorizer.adapt(all_log_messages)
-
-        return text_vectorizer
 
     def get_function_encoder(self):
         all_functions = [event['function'] for seq in self.annotated for event in seq[0]]
