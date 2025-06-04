@@ -8,11 +8,11 @@ except (NameError, ImportError):
 from collections import defaultdict
 from states import States as S
 import datetime
-from keras.layers import TextVectorization
 from sklearn.preprocessing import LabelEncoder
 from util import *
 import random
 from message_encoder import *
+import numpy as np
 
 LOG_PATH = "C:/Users/Askion/Documents/agmge/log-classification/data/CCI/CCLog-backup.{n}.log"
 LOG_LEVEL_MAP = {'Trace': 0, 'Debug': 1, 'Info': 2, 'Warn': 3, 'Error': 4, 'Fatal': 5}
@@ -29,8 +29,11 @@ class Preprocessor:
                  message_encoder:  MessageEncoder,
                  logs_per_class: int = 100,
                  window_size: int = 20,
+                 extended_datetime_features: bool = False,
                  volatile: bool = False):
         self.volatile = volatile
+
+        self.extended_datetime_features = extended_datetime_features
 
         self.annotated = []
         self.states_counts = defaultdict(int)
@@ -65,7 +68,6 @@ class Preprocessor:
 
         Args:
             path (str): The path to the log file.
-            progress (tqdm): optional tqdm object for tracking progress
         
         Returns:
             a list of event dictionaries
@@ -167,7 +169,7 @@ class Preprocessor:
 
     def pre_process(self):
         processed = []
-        self.message_encoder.initialize(event['log_message'] for seq in self.annotated for event in seq[0])
+        self.message_encoder.initialize([event['log_message'] for seq in self.annotated for event in seq[0]])
         function_encoder = self.get_function_encoder()
 
         for ev_seq, state in self.annotated:
@@ -175,13 +177,13 @@ class Preprocessor:
 
             for ev in ev_seq:
                 dt = datetime.datetime.fromisoformat(ev["timestamp"])
-                date, time = self.extract_date_time_features(dt)
+                dt = self.extract_date_time_features(dt)
                 log_level = LOG_LEVEL_MAP.get(ev['log_level'], 0)
                 function_id = function_encoder.transform([ev['function']])[0]
                 log_msg_token = self.message_encoder.encode([ev['log_message']])
                 # log_msg_token_id = log_msg_token[0] if log_msg_token else 0
 
-                feature_vector = [date, time, log_level, function_id, log_msg_token]
+                feature_vector = [val for val in dt.values()] + [log_level, function_id, log_msg_token]
                 flat_feature = np.concatenate([to_flat_array(f) for f in feature_vector])
                 sequence_features.append(flat_feature)
 
@@ -189,15 +191,77 @@ class Preprocessor:
 
         return processed
 
+    """
     def extract_date_time_features(self, dt: datetime.datetime):
-        # Normalize date as days since epoch
+        # date as days since epoch
         date_feature = (dt.date() - datetime.datetime(1970, 1, 1).date()).days
-
         # Time in seconds since midnight
         time_feature = dt.hour * 3600 + dt.minute * 60 + dt.second
-        # print(date_feature, time_feature)
 
         return date_feature, time_feature
+    """
+
+    def extract_date_time_features(self, dt: datetime.datetime, normalize: bool = False):
+        """
+        Extracts structured features from a datetime object.
+
+        Args:
+            dt (datetime): The datetime to process.
+            normalize (bool): Whether to normalize the output features.
+
+        Returns:
+            dict: A dictionary of date/time features.
+        """
+
+        if not self.extended_datetime_features:
+            # date as days since epoch
+            date_feature = (dt.date() - datetime.datetime(1970, 1, 1).date()).days
+            # Time in seconds since midnight
+            time_feature = dt.hour * 3600 + dt.minute * 60 + dt.second
+
+            return {"days_since_epoch": date_feature, "seconds_since_midnight": time_feature}
+
+        features = {}
+
+        # Date-based features
+        epoch = datetime.datetime(1970, 1, 1)
+        days_since_epoch = (dt.date() - epoch.date()).days
+        features['days_since_epoch'] = days_since_epoch
+
+        features['year'] = dt.year
+        features['month'] = dt.month        # 1–12
+        features['day'] = dt.day            # 1–31
+        features['weekday'] = dt.weekday()  # 0 = Monday, 6 = Sunday
+        features['is_weekend'] = int(dt.weekday() >= 5)
+
+        # Time-based features
+        hour = dt.hour + dt.minute / 60 + dt.second / 3600
+        features['hour'] = dt.hour
+        features['minute'] = dt.minute
+        features['second'] = dt.second
+
+        # Cyclical time features
+        features['sin_hour'] = np.sin(2 * np.pi * hour / 24)
+        features['cos_hour'] = np.cos(2 * np.pi * hour / 24)
+
+        # Normalize numeric features (rough scaling — adjust as needed)
+        max_values = {
+            'days_since_epoch': 20000,  # ~55 years from 1970 to 2025
+            'year': 2100,
+            'month': 12,
+            'day': 31,
+            'weekday': 6,
+            'hour': 23,
+            'minute': 59,
+            'second': 59
+        }
+
+        for key in list(features):
+            if key in max_values:
+                features[key] = features[key] / max_values[key]
+
+        return features
+
 
     def get_function_encoder(self):
         all_functions = [event['function'] for seq in self.annotated for event in seq[0]]
@@ -231,8 +295,6 @@ class Preprocessor:
 
         return train_data, test_data
 
-if __name__ == "__main__":
-    pp = Preprocessor([i for i in range(745, 760)], volatile=True)
-    data = pp.pre_process()
-
-    print(data[0])
+    def get_shape(self):
+        # datetime_features (2 or 11) + log_level + function_id + log_message
+        return self.window_size, (11 if self.extended_datetime_features else 2) + 1 + 1 + self.message_encoder.get_result_shape()

@@ -1,176 +1,122 @@
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-import re
 from datetime import datetime
+from preprocess import Preprocessor
 import numpy as np
+from keras.models import Sequential
+from keras.layers import LSTM, Dense
+from keras.metrics import Accuracy, Precision, Recall
+from keras.callbacks import EarlyStopping
+from sklearn.metrics import classification_report, confusion_matrix, f1_score
+import matplotlib.pyplot as plt
+import seaborn as sns
+from message_encoder import *
+from keras.optimizers import Adam, RMSprop, SGD, Nadam
 
-class Tokenizer:
-    def __init__(self):
-        self.word2idx = {"<PAD>": 0, "<UNK>": 1}
+save_weights = True
 
-    def fit(self, texts):
-        idx = 2
-        for text in texts:
-            for token in re.findall(r'\w+', text.lower()):
-                if token not in self.word2idx:
-                    self.word2idx[token] = idx
-                    idx += 1
+# hyper parameters
+# preprocessing
+log_files = [i for i in range(745, 760)]            # list of ints representing the numbers of log files to use
+logs_per_class = 100                                # How many datapoints per class should be collected if available
+window_size = 20                                    # how many log messages to be considered in a single data point from sliding window
+encoding_output_size = 16                           # size to be passed to the message_encoder, note that this is not neccessairily the shape of the output
+message_encoder = BERTEncoder(encoding_output_size) # the message_encoder to be used. Can be TextVectorizationEncoder (uses keras.layers.TextVectorizer), BERTEncoder (only uses the BERT tokenizer) or BERTEmbeddingEncoder (also uses the BERT model)
+test_ratio = 0.2                                    # percantage of the collected data that should be used for testing rather than training
+extended_datetime_features = False                  # bool, whether the preprocessing should use a multitude of normalized features extracted from the date 
+# lstm architecture
+lstm_layers = 1                                     # int, how many lstm layers to use
+lstm_units_per_layer = 50                           # int, how many lstm units per layer to use
+dropout = 0.0                                       # float, which dropout value to use, 0.0 is equivalent to not using any dropout
+recurrent_dropout = 0.0                             # float, same as with regular dropout
+# training
+epochs = 1000                                       # number of iterations to train
+batch_size = 32                                     # int, number of samples processed before updating the model weights.
+early_stopping_monitor = "val_loss"                 # what value to monitor for early_stopping. can be 'loss', 'val_loss', 'accuracy', 'val_accuracy', 'precision', 'val_precision', 'recall', 'val_recall', 'f1_score', 'val_f1_score'
+early_stopping_patience = 10                        # int, number of epochs to wait after no improvement, if this is greater than epochs, EarlyStopping will not apply
+early_stopping_restore_best = True                  # bool, if true keeps the best weights, not the final ones.
+validation_split = 0.1
+learning_rate = 0.001                               # float to specify learning rate of the optimizer
+optimizer = Adam(learning_rate=learning_rate)       # optimizer, can be one of Adam, RMSprop, SGD (can have momentum parameter), Nadam
 
-    def encode(self, text, max_len):
-        tokens = re.findall(r'\w+', text.lower())
-        ids = [self.word2idx.get(t, 1) for t in tokens]
-        return ids[:max_len] + [0] * max(0, max_len - len(ids))
+# preprocessing
+pp = Preprocessor(log_files, 
+                  message_encoder, 
+                  logs_per_class=logs_per_class, 
+                  window_size=window_size, 
+                  extended_datetime_features=extended_datetime_features, 
+                  volatile=True)
+train_data, test_data = pp.stratified_split(test_ratio=test_ratio)
+X_train, y_train = zip(*train_data)
+X_test, y_test = zip(*test_data)
 
-class CategoricalEncoder:
-    def __init__(self):
-        self.label2idx = {}
-
-    def fit(self, values):
-        self.label2idx = {v: i for i, v in enumerate(sorted(set(values)))}
-
-    def encode(self, value):
-        return self.label2idx.get(value, 0)
-
-    def vocab_size(self):
-        return len(self.label2idx)
-
-def extract_time_features(timestamp_str):
-    dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
-    return torch.tensor([
-        dt.hour / 23.0,
-        dt.weekday() / 6.0,
-        dt.timetuple().tm_yday / 365.0
-    ], dtype=torch.float32)
-
-class LogDataset(Dataset):
-    def __init__(self, logs, tokenizer, level_enc, func_enc, max_len):
-        self.logs = logs
-        self.tokenizer = tokenizer
-        self.level_enc = level_enc
-        self.func_enc = func_enc
-        self.max_len = max_len
-
-    def __len__(self):
-        return len(self.logs)
-
-    def __getitem__(self, idx):
-        log = self.logs[idx]
-
-        msg_ids = self.tokenizer.encode(log["message"], self.max_len)
-        msg_tensor = torch.tensor(msg_ids, dtype=torch.long)
-
-        level_idx = self.level_enc.encode(log["level"])
-        func_idx = self.func_enc.encode(log["function"])
-        meta = extract_time_features(log["timestamp"])
-
-        label = torch.tensor(level_idx, dtype=torch.long)
-        return msg_tensor, func_idx, meta, label
-
-class LogClassifier(nn.Module):
-    def __init__(self, vocab_size, embed_dim, hidden_dim, func_vocab_size, meta_dim, num_classes):
-        super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
-        self.lstm = nn.LSTM(embed_dim, hidden_dim, batch_first=True)
-        self.func_embed = nn.Embedding(func_vocab_size, 8)
-
-        self.fc = nn.Sequential(
-            nn.Linear(hidden_dim + 8 + meta_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, num_classes)
-        )
-
-    def forward(self, msg_seq, func_ids, meta):
-        embedded = self.embedding(msg_seq)               # (B, L, E)
-        _, (h_n, _) = self.lstm(embedded)                # h_n: (1, B, H)
-        h_last = h_n.squeeze(0)                          # (B, H)
-
-        func_vec = self.func_embed(func_ids)             # (B, 8)
-        combined = torch.cat([h_last, func_vec, meta], dim=1)  # (B, H+8+M)
-        return self.fc(combined)
-
-def train_model(model, dataloader, num_epochs=5, lr=0.001):
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-
-    for epoch in range(num_epochs):
-        model.train()
-        total_loss = 0
-        for msg, func_id, meta, label in dataloader:
-            optimizer.zero_grad()
-            output = model(msg, func_id, meta)
-            loss = criterion(output, label)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
-        print(f"Epoch {epoch+1}, Loss: {total_loss:.4f}")
-
-def preprocess_log(log, tokenizer, func_enc, max_len):
-    msg_ids = tokenizer.encode(log["message"], max_len)
-    msg_tensor = torch.tensor([msg_ids], dtype=torch.long)  # shape (1, L)
-
-    func_idx = func_enc.encode(log["function"])
-    func_tensor = torch.tensor([func_idx], dtype=torch.long)  # shape (1,)
-
-    meta_tensor = extract_time_features(log["timestamp"]).unsqueeze(0)  # shape (1, 3)
-
-    return msg_tensor, func_tensor, meta_tensor
-
-def predict_log(model, log_entry, tokenizer, func_enc, level_enc, max_len):
-    model.eval()
-    with torch.no_grad():
-        msg, func_id, meta = preprocess_log(log_entry, tokenizer, func_enc, max_len)
-        logits = model(msg, func_id, meta)         # (1, num_classes)
-        probs = torch.softmax(logits, dim=1)       # (1, num_classes)
-        pred_class = torch.argmax(probs, dim=1).item()
-        label = list(level_enc.label2idx.keys())[pred_class]
-        return label, probs.squeeze().tolist()
-
-if __name__ == "__main__":
-    logs = [
-        {"timestamp": "2024-03-21 10:15:32", "level": "ERROR", "function": "connect_to_db", "message": "Failed to connect to database"},
-        {"timestamp": "2024-03-21 10:17:01", "level": "INFO", "function": "start_service", "message": "Service started successfully"},
-        {"timestamp": "2024-03-21 10:17:05", "level": "WARN", "function": "retry_login", "message": "Retrying login after timeout"},
-    ]
-
-    tokenizer = Tokenizer()
-    tokenizer.fit([l["message"] for l in logs])
-
-    level_enc = CategoricalEncoder()
-    level_enc.fit([l["level"] for l in logs])
-
-    func_enc = CategoricalEncoder()
-    func_enc.fit([l["function"] for l in logs])
-
-    dataset = LogDataset(logs, tokenizer, level_enc, func_enc, max_len=10)
-    loader = DataLoader(dataset, batch_size=2, shuffle=True)
-
-    model = LogClassifier(
-        vocab_size=len(tokenizer.word2idx),
-        embed_dim=50,
-        hidden_dim=64,
-        func_vocab_size=func_enc.vocab_size(),
-        meta_dim=3,
-        num_classes=level_enc.vocab_size()
-    )
-
-    train_model(model, loader, num_epochs=100)
-
-    input()
-
-    new_log = {
-        "timestamp": "2024-03-21 11:32:00",
-        "level": "UNKNOWN",  # not used here, but okay to include
-        "function": "start_service",
-        "message": "System startup complete"
-    }
-
-    pred_label, prob_scores = predict_log(
-        model, new_log, tokenizer, func_enc, level_enc, max_len=10
-    )
-
-    print(f"Predicted label: {pred_label}")
-    print(f"Class probabilities: {prob_scores}")
+X_train = np.array(X_train)
+y_train = np.array(y_train)
+X_test = np.array(X_test)
+y_test = np.array(y_test)
 
 
+# lstm architecture
+model = Sequential()
+input_shape = pp.get_shape()
+# First LSTM layer
+if lstm_layers > 1:
+    model.add(LSTM(lstm_units_per_layer, input_shape=input_shape, return_sequences=True))
+else:
+    model.add(LSTM(lstm_units_per_layer, input_shape=input_shape))  # single layer, no sequences returned
+# Intermediate LSTM layers (if any)
+for i in range(lstm_layers - 2):
+    model.add(LSTM(lstm_units_per_layer, return_sequences=True))
+# Last LSTM layer (no return_sequences, output fed into Dense)
+if lstm_layers > 1:
+    model.add(LSTM(lstm_units_per_layer))
+# Dense Layer
+num_classes = len(set(y_train))
+model.add(Dense(num_classes, activation='softmax'))
+# compile the model
+model.compile(optimizer=optimizer, loss='sparse_categorical_crossentropy', 
+              metrics=['accuracy'])
+# train the model
+early_stopping = EarlyStopping(monitor=early_stopping_monitor, 
+                               patience=early_stopping_patience, 
+                               restore_best_weights=early_stopping_restore_best)
+model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, validation_split=validation_split, callbacks=[early_stopping])
+
+# optionally save the model weights
+filename = f"lstm_{lstm_layers}x{lstm_units_per_layer}_drop{dropout}_rec{recurrent_dropout}_enc{message_encoder.__class__.__name__.lower()}_{logs_per_class}logs_win{window_size}_lr{learning_rate}_bs{batch_size}_ep{epochs}_{early_stopping_monitor}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+if save_weights: model.save(f"{filename}.h5")
+
+# Summary of the model
+model.summary()
+
+# Evaluate the model on test data
+results = model.evaluate(X_test, y_test, verbose=0)
+for name, value in zip(model.metrics_names, results):
+    print(f"{name}: {value:.4f}")
+
+# Predictions
+predictions = model.predict(X_test)
+y_pred = np.argmax(predictions, axis=1)
+
+# Classification report and F1 score
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred))
+
+f1 = f1_score(y_test, y_pred, average='weighted')
+print(f"F1 Score (weighted): {f1:.4f}")
+
+# Confusion matrix
+conf_matrix = confusion_matrix(y_test, y_pred)
+plt.figure(figsize=(10, 8))
+sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues')
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix')
+plt.show()
+plt.savefig(f"{filename}.png")
+
+# Print comparison of a few predictions vs actual values
+a = []
+for i in range(80):
+    a.append(y_pred[i] == y_test[i])
+    print(predictions[i])
+
+print(a.count(True))

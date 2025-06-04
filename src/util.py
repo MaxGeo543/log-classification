@@ -5,7 +5,7 @@ import torch
 def to_flat_array(x):
     # Converts scalar or array-like into 1D NumPy array
     if isinstance(x, tf.Tensor):
-        return x.numy().reshape(-1)
+        return x.numpy().reshape(-1)
     elif isinstance(x, torch.Tensor):
         return x.numpy().reshape(-1)
     elif isinstance(x, np.ndarray):
