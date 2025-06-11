@@ -101,5 +101,5 @@ class BERTEmbeddingEncoder(MessageEncoder):
         return embeddings.flatten()
 
     def get_result_shape(self):
-        # Return shape: (sequence_length, hidden_dim), e.g., (16, 768)
+        # Return shape: sequence_length * hidden_dim, e.g., 16 * 768
         return self.max_length * self._model.config.hidden_size

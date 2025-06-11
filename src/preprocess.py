@@ -17,12 +17,6 @@ import numpy as np
 LOG_PATH = "C:/Users/Askion/Documents/agmge/log-classification/data/CCI/CCLog-backup.{n}.log"
 LOG_LEVEL_MAP = {'Trace': 0, 'Debug': 1, 'Info': 2, 'Warn': 3, 'Error': 4, 'Fatal': 5}
 
-
-
-
-
-
-
 class Preprocessor:
     def __init__(self, 
                  log_numbers: list[int], 
