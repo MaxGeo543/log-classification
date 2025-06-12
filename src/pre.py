@@ -19,7 +19,8 @@ import json
 import os
 import joblib
 
-LOG_PATH = "C:/Users/Askion/Documents/agmge/log-classification/data/CCI/CCLog-backup.{n}.log"
+DATA_PATH = "C:/Users/Askion/Documents/agmge/log-classification/data"
+LOG_PATH = DATA_PATH + "/CCI/CCLog-backup.{n}.log"
 LOG_LEVEL_MAP = {'Trace': 0, 'Debug': 1, 'Info': 2, 'Warn': 3, 'Error': 4, 'Fatal': 5}
 
 class Dataset:
@@ -43,24 +44,26 @@ class Dataset:
         self.data_list.append((features, state))
     
     def as_xy_arrays(self):
-        x, y = zip(*self.data_list)
-        x = np.array(x)
-        y = np.array(y)
+        if len(self.data_list) != 0:
+            x, y = zip(*self.data_list)
+            x = np.array(x)
+            y = np.array(y)
 
-        if not self.const:
-            self.data_array_x, self.data_array_y = x, y
+            if not self.const:
+                self.data_array_x, self.data_array_y = x, y
         if self.data_array_x is None or self.data_array_y is None:
             raise Exception("Data array is not defined.")
 
         return self.data_array_x, self.data_array_y
     
     def stratified_split(self, ratios=(4, 1), seed=42):
-        x, y = zip(*self.data_list)
-        x = np.array(x)
-        y = np.array(y)
+        if len(self.data_list) != 0:
+            x, y = zip(*self.data_list)
+            x = np.array(x)
+            y = np.array(y)
 
-        if not self.const:
-            self.data_array_x, self.data_array_y = x, y
+            if not self.const:
+                self.data_array_x, self.data_array_y = x, y
         if self.data_array_x is None or self.data_array_y is None:
             raise Exception("Data array is not defined.")
         
@@ -69,9 +72,8 @@ class Dataset:
         class_buckets = defaultdict(list)
         
         # Group samples by class
-        for sample in zip(self.data_array_x, self.data_array_y):
-            x, y = sample
-            class_buckets[y].append(sample)
+        for x, y in zip(self.data_array_x, self.data_array_y):
+            class_buckets[y].append((x, y))
 
         # Normalize ratios
         total = sum(ratios)
@@ -81,7 +83,6 @@ class Dataset:
 
         # Perform stratified split
         for samples in class_buckets.values():
-            samples = list(samples)
             random.shuffle(samples)
             n = len(samples)
 
@@ -95,18 +96,24 @@ class Dataset:
                 start += size
 
         # Optionally shuffle the final splits
+        result = []
         for split in splits:
             random.shuffle(split)
+            X, y = zip(*split)
+            X = np.array(X)
+            y = np.array(y)
+            result.append((X, y))
 
-        return tuple(np.array(split) for split in splits)
+        return result
         
     def save(self, file_path: str):
-        x, y = zip(*self.data_list)
-        x = np.array(x)
-        y = np.array(y)
+        if len(self.data_list) != 0:
+            x, y = zip(*self.data_list)
+            x = np.array(x)
+            y = np.array(y)
 
-        if not self.const:
-            self.data_array_x, self.data_array_y = x, y
+            if not self.const:
+                self.data_array_x, self.data_array_y = x, y
         if self.data_array_x is None or self.data_array_y is None:
             raise Exception("Data array is not defined.")
         
@@ -114,11 +121,13 @@ class Dataset:
 
     @staticmethod
     def load(file_path: str, validate_shape: bool = True) -> Dataset:
-        data = np.load(file_path)
-        data_x, data_y = data['x'], data['y']
-        shape = data[0][0].shape
+        npz = np.load(file_path)
+        data_x, data_y = npz['x'], npz['y']
+        npz.close()
         
-        if validate_shape and not all(d[0].shape == shape for d in data_x):
+        shape = data_x[0].shape
+        
+        if validate_shape and not all(d.shape == shape for d in data_x):
             raise Exception("feature shapes must be all the same")
         
         ds = Dataset(shape)
@@ -146,16 +155,31 @@ class Preprocessor:
         self.logs_per_class = logs_per_class
         self.window_size = window_size
         self.message_encoder = message_encoder
+        self.loaded_files = set()
 
         self.data = Dataset((self.window_size, (11 if self.extended_datetime_features else 2) + 1 + 1 + self.message_encoder.get_result_shape()))
         self.events = []
-        for i in log_numbers: self._load_logfile(LOG_PATH.format(n=i))
+        try:
+            for i in log_numbers: self.load_logfile(LOG_PATH.format(n=i))
+        except KeyboardInterrupt:
+            pass
         self.message_encoder.initialize([ev["log_message"] for ev in self.events])
         self.function_encoder = LabelEncoder()
         self.function_encoder.fit([ev["function"] for ev in self.events])
         
+    
+    def initialize(self):
+        self.message_encoder.initialize([ev["log_message"] for ev in self.events])
+        self.function_encoder = LabelEncoder()
+        self.function_encoder.fit([ev["function"] for ev in self.events])
 
-    def _load_logfile(self, path: str):
+    def load_logfiles(self, log_numbers: list[int]):
+        try:
+            for i in log_numbers: self.load_logfile(LOG_PATH.format(n=i))
+        except KeyboardInterrupt:
+            pass
+
+    def load_logfile(self, path: str):
         """
         Load and parse a logfile into a list of events. Each event has the following keys: "timestamp", "log_level", "function", "log_message"
 
@@ -165,12 +189,18 @@ class Preprocessor:
         Returns:
             a list of event dictionaries
         """
+        if path in self.loaded_files:
+            return
+        
         # open the log file
         with open(path, "r") as f:
             lines = f.readlines()
 
         # initialize tracker for progress
-        if self.volatile: progress = tqdm(total=len(lines), desc=f"parsing log file {path}")
+        filename = os.path.basename(path)
+        if self.volatile: progress = tqdm(total=len(lines), desc=f"parsing log file {filename}")
+
+        events = []
 
         # loop over all lines and parse them into a list of events
         while lines:
@@ -186,11 +216,11 @@ class Preprocessor:
                     "function": parts[2].strip(),
                     "log_message": parts[3].strip()
                 }
-                self.events.append(event)
+                events.append(event)
 
             # otherwise add to the previous log message
-            elif self.events:
-                self.events[-1]["log_message"] += "\n" + line
+            elif events:
+                events[-1]["log_message"] += "\n" + line
             
             # pop the first line
             lines.pop(0)
@@ -198,6 +228,8 @@ class Preprocessor:
             # update progress
             if self.volatile: progress.update(1)
         
+        self.events.extend(events)
+        self.loaded_files.add(path)
     
     def preprocess(self):
         def event_to_vector(seq):
@@ -315,11 +347,19 @@ class Preprocessor:
             for k, v in self.data.states_counts.items(): print(f"  - {k} : {v}")
 
         # break out of the loop once all classes have the required number
-        if all(v == logs_per_class for v in self.data.states_counts.values()):
+        if all(v == self.logs_per_class for v in self.data.states_counts.values()):
             print(f"All states have the desired log count")
         
 
-    def save(self, path: str):
+    def save(self, path: str | None = None):
+        if path is None:
+            path = DATA_PATH + f"/preprocessors/preprocessor_{len(self.loaded_files)}files_"
+            m = "BERTenc" if isinstance(self.message_encoder, BERTEncoder) else "BERTemb" if isinstance(self.message_encoder, BERTEmbeddingEncoder) else "TextVec" if isinstance(self.message_encoder, TextVectorizationEncoder) else "enc"
+            path += f"_{logs_per_class}lpc_{window_size}ws_{m}x{encoding_output_size}"
+            if extended_datetime_features: path += "_extdt"
+            path += ".json"
+
+
         base_path, _ = os.path.splitext(path)
 
         # Paths to encoders (you could customize extensions here if needed)
@@ -344,6 +384,7 @@ class Preprocessor:
             "message_encoder_path": message_encoder_path,
             "function_encoder_path": function_encoder_path,
             "data_path": data_path,
+            "loaded_files": list(self.loaded_files),
             "events": []
         }
 
@@ -356,6 +397,8 @@ class Preprocessor:
         # Save as JSON
         with open(path, 'w') as f:
             json.dump(obj, f, indent=4)
+        
+        return path
 
     @staticmethod
     def load( path: str):
@@ -377,9 +420,9 @@ class Preprocessor:
             obj.function_encoder = joblib.load(function_encoder_path)
 
         # Load data if it exists
-        data_path = json_obj.get("data_path", base_path + "_data.npy")
+        data_path = json_obj.get("data_path", base_path + "_data.npz")
         if os.path.exists(data_path):
-            obj.data = np.load(data_path, allow_pickle=True)
+            obj.data = Dataset.load(data_path)
         else:
             obj.data = None
 
@@ -388,15 +431,28 @@ class Preprocessor:
         obj.logs_per_class = json_obj.get("logs_per_class", 0)
         obj.window_size = json_obj.get("window_size", 1)
         obj.events = [tuple(ev) for ev in json_obj.get("events", [])]
+        obj.loaded_files = set(json_obj.get("loaded_files", set()))
 
         return obj
 
 if __name__ == "__main__":
+    if True:
+        pp = Preprocessor.load("./data/test_pp.json")
+        print(len(pp.events))
+        train, test = pp.data.stratified_split((4, 1))
+        X_train, y_train = train
+        X_test, y_test = test
+
+        print(X_train)
+
+        quit()
+    
+    
     # preprocessing
     log_files = [i for i in range(745, 747)]            # list of ints representing the numbers of log files to use
-    logs_per_class = 10                                # How many datapoints per class should be collected if available
-    window_size = 5                                    # how many log messages to be considered in a single data point from sliding window
-    encoding_output_size = 8                           # size to be passed to the message_encoder, note that this is not neccessairily the shape of the output
+    logs_per_class = 10                                 # How many datapoints per class should be collected if available
+    window_size = 5                                     # how many log messages to be considered in a single data point from sliding window
+    encoding_output_size = 8                            # size to be passed to the message_encoder, note that this is not neccessairily the shape of the output
     message_encoder = BERTEncoder(encoding_output_size) # the message_encoder to be used. Can be TextVectorizationEncoder (uses keras.layers.TextVectorizer), BERTEncoder (only uses the BERT tokenizer) or BERTEmbeddingEncoder (also uses the BERT model)
     test_ratio = 0.2                                    # percantage of the collected data that should be used for testing rather than training
     extended_datetime_features = False                  # bool, whether the preprocessing should use a multitude of normalized features extracted from the date 
@@ -404,5 +460,11 @@ if __name__ == "__main__":
     pp = Preprocessor(log_files, message_encoder, logs_per_class, window_size, extended_datetime_features, True)
     pp.preprocess()
 
+    train, test = pp.data.stratified_split((4, 1))
+    X_train, y_train = train
+    X_test, y_test = test
 
-    pp.save("./test_pp.json")
+    print(X_train)
+
+    # pp.save("./data/test_pp.json")
+

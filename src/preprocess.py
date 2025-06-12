@@ -287,6 +287,8 @@ class Preprocessor:
         random.shuffle(train_data)
         random.shuffle(test_data)
 
+        print(train_data[0])
+
         return train_data, test_data
 
     def get_shape(self):

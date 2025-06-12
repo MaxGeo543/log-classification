@@ -15,7 +15,7 @@ save_weights = True
 
 # hyper parameters
 # preprocessing
-log_files = [i for i in range(745, 760)]            # list of ints representing the numbers of log files to use
+log_files = [595,596,599,610,611,749,750,751,752]            # list of ints representing the numbers of log files to use
 logs_per_class = 100                                # How many datapoints per class should be collected if available
 window_size = 20                                    # how many log messages to be considered in a single data point from sliding window
 encoding_output_size = 16                           # size to be passed to the message_encoder, note that this is not neccessairily the shape of the output
