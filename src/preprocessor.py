@@ -18,6 +18,8 @@ from message_encoder import *
 import json
 import os
 import joblib
+import zipfile
+import tempfile
 
 DATA_PATH = "C:/Users/Askion/Documents/agmge/log-classification/data"
 LOG_PATH = DATA_PATH + "/CCI/CCLog-backup.{n}.log"
@@ -310,6 +312,7 @@ class Preprocessor:
             # select the events by sliding window and get the last of the selected events
             seq = self.events[(i-self.window_size):i]
             last_event = seq[-1]
+            # print(last_event)
             
             ############################
             # Annotation rules
@@ -354,103 +357,123 @@ class Preprocessor:
     def save(self, path: str | None = None):
         if path is None:
             path = DATA_PATH + f"/preprocessors/preprocessor_{len(self.loaded_files)}files_"
-            m = "BERTenc" if isinstance(self.message_encoder, BERTEncoder) else "BERTemb" if isinstance(self.message_encoder, BERTEmbeddingEncoder) else "TextVec" if isinstance(self.message_encoder, TextVectorizationEncoder) else "enc"
-            path += f"_{logs_per_class}lpc_{window_size}ws_{m}x{encoding_output_size}"
-            if extended_datetime_features: path += "_extdt"
-            path += ".json"
+            m = "BERTenc" if isinstance(self.message_encoder, BERTEncoder) else \
+                "BERTemb" if isinstance(self.message_encoder, BERTEmbeddingEncoder) else \
+                "TextVec" if isinstance(self.message_encoder, TextVectorizationEncoder) else "enc"
+            path += f"{self.logs_per_class}lpc_{self.window_size}ws_{m}x{self.message_encoder.get_result_shape() if self.message_encoder is not None else ''}"
+            if self.extended_datetime_features:
+                path += "_extdt"
+            path += ".zip"
 
-
-        base_path, _ = os.path.splitext(path)
-
-        # Paths to encoders (you could customize extensions here if needed)
-        message_encoder_path = base_path + "_message_encoder.pkl"
-        function_encoder_path = base_path + "_function_encoder.pkl"
-        data_path = base_path + "_data.npz"
-        
-        # Save encoders if they exist
-        if hasattr(self, "message_encoder"):
-            joblib.dump(self.message_encoder, message_encoder_path)
-
-        if hasattr(self, "function_encoder"):
-            joblib.dump(self.function_encoder, function_encoder_path)
-        
-        if self.data is not None:
-            self.data.save(data_path)
-
-        obj = {
-            "extended_datetime_features": self.extended_datetime_features,
-            "logs_per_class": self.logs_per_class,
-            "window_size": self.window_size,
-            "message_encoder_path": message_encoder_path,
-            "function_encoder_path": function_encoder_path,
-            "data_path": data_path,
-            "loaded_files": list(self.loaded_files),
-            "events": []
-        }
-
-        for ev in self.events:
-            obj["events"].append(ev)
-
-        # Ensure the directory exists
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
-        # Save as JSON
-        with open(path, 'w') as f:
-            json.dump(obj, f, indent=4)
-        
+        # Use a temporary directory to store intermediate files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            message_encoder_path = os.path.join(temp_dir, "message_encoder.pkl")
+            function_encoder_path = os.path.join(temp_dir, "function_encoder.pkl")
+            data_path = os.path.join(temp_dir, "data.npz")
+            json_path = os.path.join(temp_dir, "metadata.json")
+
+            # Save encoders
+            if hasattr(self, "message_encoder"):
+                joblib.dump(self.message_encoder, message_encoder_path)
+
+            if hasattr(self, "function_encoder"):
+                joblib.dump(self.function_encoder, function_encoder_path)
+
+            if self.data is not None:
+                self.data.save(data_path)
+
+            # Build the JSON metadata
+            obj = {
+                "extended_datetime_features": self.extended_datetime_features,
+                "logs_per_class": self.logs_per_class,
+                "window_size": self.window_size,
+                "message_encoder_path": "message_encoder.pkl",
+                "function_encoder_path": "function_encoder.pkl",
+                "data_path": "data.npz",
+                "loaded_files": list(self.loaded_files),
+                "events": self.events,
+            }
+
+            with open(json_path, 'w') as f:
+                json.dump(obj, f, indent=4)
+
+            # Zip everything
+            with zipfile.ZipFile(path, 'w') as zf:
+                zf.write(json_path, "metadata.json")
+                if os.path.exists(message_encoder_path):
+                    zf.write(message_encoder_path, "message_encoder.pkl")
+                if os.path.exists(function_encoder_path):
+                    zf.write(function_encoder_path, "function_encoder.pkl")
+                if os.path.exists(data_path):
+                    zf.write(data_path, "data.npz")
+
         return path
 
     @staticmethod
-    def load( path: str):
-        base_path, _ = os.path.splitext(path)
+    def load(path: str, volatile: bool = True):
+        if not zipfile.is_zipfile(path):
+            raise ValueError(f"The provided path is not a zip file: {path}")
 
-        # Load JSON metadata
-        with open(path, 'r') as f:
-            json_obj = json.load(f)
+        with zipfile.ZipFile(path, 'r') as zip_file:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                zip_file.extractall(temp_dir)
 
-        obj = object.__new__(Preprocessor)
+                # Load JSON metadata
+                metadata_path = os.path.join(temp_dir, "metadata.json")
+                with open(metadata_path, 'r') as f:
+                    json_obj = json.load(f)
 
-        # Load encoders if paths are specified
-        message_encoder_path = json_obj.get("message_encoder_path", base_path + "_message_encoder.pkl")
-        if os.path.exists(message_encoder_path):
-            obj.message_encoder = joblib.load(message_encoder_path)
+                obj = object.__new__(Preprocessor)
+                obj.volatile = volatile
 
-        function_encoder_path = json_obj.get("function_encoder_path", base_path + "_function_encoder.pkl")
-        if os.path.exists(function_encoder_path):
-            obj.function_encoder = joblib.load(function_encoder_path)
+                # Load encoders
+                message_encoder_file = os.path.join(temp_dir, json_obj.get("message_encoder_path", "message_encoder.pkl"))
+                if os.path.exists(message_encoder_file):
+                    obj.message_encoder = joblib.load(message_encoder_file)
 
-        # Load data if it exists
-        data_path = json_obj.get("data_path", base_path + "_data.npz")
-        if os.path.exists(data_path):
-            obj.data = Dataset.load(data_path)
-        else:
-            obj.data = None
+                function_encoder_file = os.path.join(temp_dir, json_obj.get("function_encoder_path", "function_encoder.pkl"))
+                if os.path.exists(function_encoder_file):
+                    obj.function_encoder = joblib.load(function_encoder_file)
 
-        # Restore other attributes
-        obj.extended_datetime_features = json_obj.get("extended_datetime_features", False)
-        obj.logs_per_class = json_obj.get("logs_per_class", 0)
-        obj.window_size = json_obj.get("window_size", 1)
-        obj.events = [tuple(ev) for ev in json_obj.get("events", [])]
-        obj.loaded_files = set(json_obj.get("loaded_files", set()))
+                # Load data
+                data_file = os.path.join(temp_dir, json_obj.get("data_path", "data.npz"))
+                if os.path.exists(data_file):
+                    obj.data = Dataset.load(data_file)
+                else:
+                    raise Exception("No data found")
 
-        return obj
+                # Restore attributes
+                obj.extended_datetime_features = json_obj.get("extended_datetime_features", False)
+                obj.logs_per_class = json_obj.get("logs_per_class", 0)
+                obj.window_size = json_obj.get("window_size", 1)
+                obj.events = [dict(ev) for ev in json_obj.get("events", [])]
+                obj.loaded_files = set(json_obj.get("loaded_files", []))
+
+                obj.initialize()
+
+                return obj
+
 
 if __name__ == "__main__":
-    if True:
-        pp = Preprocessor.load("./data/test_pp.json")
-        print(len(pp.events))
+    if False:
+        pp = Preprocessor.load(f"{DATA_PATH}/preprocessors/preprocessor_2files_11lpc_5ws_BERTencx8.zip")
+        # pp.preprocess()
+
+
         train, test = pp.data.stratified_split((4, 1))
         X_train, y_train = train
         X_test, y_test = test
 
         print(X_train)
-
+        
         quit()
-    
-    
+
+
     # preprocessing
     log_files = [i for i in range(745, 747)]            # list of ints representing the numbers of log files to use
-    logs_per_class = 10                                 # How many datapoints per class should be collected if available
+    logs_per_class = 11                                 # How many datapoints per class should be collected if available
     window_size = 5                                     # how many log messages to be considered in a single data point from sliding window
     encoding_output_size = 8                            # size to be passed to the message_encoder, note that this is not neccessairily the shape of the output
     message_encoder = BERTEncoder(encoding_output_size) # the message_encoder to be used. Can be TextVectorizationEncoder (uses keras.layers.TextVectorizer), BERTEncoder (only uses the BERT tokenizer) or BERTEmbeddingEncoder (also uses the BERT model)
@@ -465,6 +488,4 @@ if __name__ == "__main__":
     X_test, y_test = test
 
     print(X_train)
-
-    # pp.save("./data/test_pp.json")
 

@@ -1,5 +1,5 @@
 from datetime import datetime
-from preprocess import Preprocessor
+from preprocessor import Preprocessor
 import numpy as np
 from keras.models import Sequential
 from keras.layers import LSTM, Dense
@@ -10,18 +10,21 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from message_encoder import *
 from keras.optimizers import Adam, RMSprop, SGD, Nadam
+import os
 
 save_weights = True
 
 # hyper parameters
 # preprocessing
-log_files = [595,596,599,610,611,749,750,751,752]            # list of ints representing the numbers of log files to use
+log_files = [i for i in range(745, 754)]            # list of ints representing the numbers of log files to use
 logs_per_class = 100                                # How many datapoints per class should be collected if available
 window_size = 20                                    # how many log messages to be considered in a single data point from sliding window
 encoding_output_size = 16                           # size to be passed to the message_encoder, note that this is not neccessairily the shape of the output
 message_encoder = BERTEncoder(encoding_output_size) # the message_encoder to be used. Can be TextVectorizationEncoder (uses keras.layers.TextVectorizer), BERTEncoder (only uses the BERT tokenizer) or BERTEmbeddingEncoder (also uses the BERT model)
-test_ratio = 0.2                                    # percantage of the collected data that should be used for testing rather than training
+split_ratios = (4, 1)                               # percantage of the collected data that should be used for testing rather than training
 extended_datetime_features = False                  # bool, whether the preprocessing should use a multitude of normalized features extracted from the date 
+preprocessor_file = "./data/preprocessors/preprocessor_9files__100lpc_20ws_BERTencx16.json" # if this is a string with content, load the file instead of creating a new preprocessor
+
 # lstm architecture
 lstm_layers = 1                                     # int, how many lstm layers to use
 lstm_units_per_layer = 50                           # int, how many lstm units per layer to use
@@ -38,38 +41,46 @@ learning_rate = 0.001                               # float to specify learning 
 optimizer = Adam(learning_rate=learning_rate)       # optimizer, can be one of Adam, RMSprop, SGD (can have momentum parameter), Nadam
 
 # preprocessing
-pp = Preprocessor(log_files, 
-                  message_encoder, 
-                  logs_per_class=logs_per_class, 
-                  window_size=window_size, 
-                  extended_datetime_features=extended_datetime_features, 
-                  volatile=True)
-train_data, test_data = pp.stratified_split(test_ratio=test_ratio)
-X_train, y_train = zip(*train_data)
-print(X_train)
-quit()
-X_test, y_test = zip(*test_data)
+if os.path.isfile(preprocessor_file):
+    pp = Preprocessor.load(preprocessor_file)
+else:
+    pp = Preprocessor(log_files, 
+                    message_encoder, 
+                    logs_per_class=logs_per_class, 
+                    window_size=window_size, 
+                    extended_datetime_features=extended_datetime_features, 
+                    volatile=True)
+    pp.preprocess()
 
-X_train = np.array(X_train)
-y_train = np.array(y_train)
-X_test = np.array(X_test)
-y_test = np.array(y_test)
+    # save the dataset if it doesn't exist already!
+    path = f"./data/preprocessors/preprocessor_{len(pp.loaded_files)}files_"
+    m = "BERTenc" if isinstance(pp.message_encoder, BERTEncoder) else "BERTemb" if isinstance(pp.message_encoder, BERTEmbeddingEncoder) else "TextVec" if isinstance(pp.message_encoder, TextVectorizationEncoder) else "enc"
+    path += f"_{logs_per_class}lpc_{window_size}ws_{m}x{encoding_output_size}"
+    if extended_datetime_features: path += "_extdt"
+    path += ".json"
+    if not os.path.isfile(path):
+        pp.save(path)
 
+# defining data for training and testing
+train, test = pp.data.stratified_split((4, 1))
+X_train, y_train = train
+X_test, y_test = test
 
 # lstm architecture
 model = Sequential()
-input_shape = pp.get_shape()
+input_shape = pp.data.entry_shape
+print(input_shape)
 # First LSTM layer
 if lstm_layers > 1:
-    model.add(LSTM(lstm_units_per_layer, input_shape=input_shape, return_sequences=True))
+    model.add(LSTM(lstm_units_per_layer, input_shape=input_shape, return_sequences=True, dropout=dropout, recurrent_dropout=recurrent_dropout))
 else:
-    model.add(LSTM(lstm_units_per_layer, input_shape=input_shape))  # single layer, no sequences returned
+    model.add(LSTM(lstm_units_per_layer, input_shape=input_shape, dropout=dropout, recurrent_dropout=recurrent_dropout))  # single layer, no sequences returned
 # Intermediate LSTM layers (if any)
 for i in range(lstm_layers - 2):
-    model.add(LSTM(lstm_units_per_layer, return_sequences=True))
+    model.add(LSTM(lstm_units_per_layer, return_sequences=True, dropout=dropout, recurrent_dropout=recurrent_dropout))
 # Last LSTM layer (no return_sequences, output fed into Dense)
 if lstm_layers > 1:
-    model.add(LSTM(lstm_units_per_layer))
+    model.add(LSTM(lstm_units_per_layer, dropout=dropout, recurrent_dropout=recurrent_dropout))
 # Dense Layer
 num_classes = len(set(y_train))
 model.add(Dense(num_classes, activation='softmax'))
