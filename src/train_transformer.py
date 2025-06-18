@@ -124,7 +124,7 @@ model.fit(X_train, y_train,
 
 # === Save model ===
 filename = f"transformer_{num_transformer_blocks}x{model_dim}_drop{dropout_rate}_enc{message_encoder.__class__.__name__.lower()}_{logs_per_class}logs_win{window_size}_lr{learning_rate}_bs{batch_size}_ep{epochs}_{early_stopping_monitor}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-if save_weights: model.save(f"{filename}.h5")
+if save_weights: model.save(f"{filename}.keras")
 
 # === Evaluate ===
 model.summary()

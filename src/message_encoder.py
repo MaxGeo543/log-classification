@@ -49,7 +49,7 @@ class BERTEncoder(MessageEncoder):
                  max_length=16):
         super().__init__()
         self.max_length = max_length
-        self._tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self._tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', )
     
     def initialize(self, all_messages):
         pass
@@ -62,7 +62,9 @@ class BERTEncoder(MessageEncoder):
             padding="max_length",
             truncation=True
         )
-        return inputs['input_ids'][0]
+        x = inputs['input_ids'][0]
+        # print(x.shape)
+        return x[:self.max_length]
     
     def get_result_shape(self):
         return self.max_length
