@@ -1,4 +1,5 @@
 from datetime import datetime
+import tensorflow as tf
 import numpy as np
 from keras.models import Model
 from keras.layers import Input, Dense, LayerNormalization, Dropout, MultiHeadAttention, Add, GlobalAveragePooling1D
@@ -8,13 +9,13 @@ from keras.optimizers import Adam, RMSprop, SGD, Nadam
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
 import matplotlib.pyplot as plt
 import seaborn as sns
-import tensorflow as tf
 import os
-import keras
 from positional_encoding import PositionalEncoding
 
 from preprocessor import Preprocessor
 from message_encoder import *
+
+
 
 # === General settings ===
 save_weights = True

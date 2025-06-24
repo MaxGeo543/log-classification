@@ -21,7 +21,7 @@ import joblib
 import zipfile
 import tempfile
 
-DATA_PATH = "C:/Users/Askion/Documents/agmge/log-classification/data"
+DATA_PATH = r"C:\Users\a_gerw500\Documents\agmge\log-classification\data"
 LOG_PATH = DATA_PATH + "/CCI/CCLog-backup.{n}.log"
 LOG_LEVEL_MAP = {'Trace': 0, 'Debug': 1, 'Info': 2, 'Warn': 3, 'Error': 4, 'Fatal': 5}
 
