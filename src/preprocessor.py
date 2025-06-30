@@ -234,6 +234,31 @@ class Preprocessor:
         self.loaded_files.add(path)
     
     def preprocess(self):
+        # initialize tracker for progress
+        if self.volatile: progress = tqdm(total=len(self.events), desc="annotating events")
+
+        # let a sliding window go over the events list
+        for i in range(self.window_size, len(self.events)):
+            # update progress
+            if self.volatile: progress.update(1)
+            
+            # select the events by sliding window and get the last of the selected events
+            window = self.events[(i-self.window_size):i]
+            
+            vec, label = self.annotate_and_encode_window(window)
+            if self.data.states_counts[label] >= self.logs_per_class: continue
+            else: self.data.add(vec, label)
+        
+        # log
+        if self.volatile:
+            print(f"State counts:")
+            for k, v in self.data.states_counts.items(): print(f"  - {k} : {v}")
+
+        # break out of the loop once all classes have the required number
+        if all(v == self.logs_per_class for v in self.data.states_counts.values()):
+            print(f"All states have the desired log count")
+    
+    def annotate_and_encode_window(self, window):
         def event_to_vector(seq):
             sequence_features = []
 
@@ -301,58 +326,80 @@ class Preprocessor:
 
             return features
 
-        # initialize tracker for progress
-        if self.volatile: progress = tqdm(total=len(self.events), desc="annotating events")
+        last_event = window[-1]
 
-        # let a sliding window go over the events list
-        for i in range(self.window_size, len(self.events)):
-            # update progress
-            if self.volatile: progress.update(1)
-            
-            # select the events by sliding window and get the last of the selected events
-            seq = self.events[(i-self.window_size):i]
-            last_event = seq[-1]
-            # print(last_event)
-            
-            ############################
-            # Annotation rules
-            ############################
-            # Rule for UnobservedException
-            if last_event["function"] == "C_line_Control_Server.CCServerAppContext.TaskSchedulerUnobservedTaskException":
-                if self.data.states_counts[S.UnobservedException] >= self.logs_per_class: continue
+        ############################
+        # Annotation rules
+        ############################
+        # Rule for UnobservedException
+        if last_event["function"] == "C_line_Control_Server.CCServerAppContext.TaskSchedulerUnobservedTaskException":
+            return event_to_vector(window), S.UnobservedException
+        
+        elif last_event["log_level"] == "Error":
+            # Rule for DatabaseError
+            if "DBProxyMySQL" in last_event["function"] or "DBManager" in last_event["function"]:
+                return event_to_vector(window), S.DatabaseError
                 
-                self.data.add(event_to_vector(seq), S.UnobservedException)
-                continue
+            # Rule for HliSessionError
+            elif "SessionFactory.OpenSession" in last_event["function"]:
+                return event_to_vector(window), S.HliSessionError
             
-            elif last_event["log_level"] == "Error":
-                # Rule for DatabaseError
-                if "DBProxyMySQL" in last_event["function"] or "DBManager" in last_event["function"]:
-                    if self.data.states_counts[S.DatabaseError] >= self.logs_per_class: continue
-                    
-                    self.data.add(event_to_vector(seq), S.DatabaseError)
-                    continue
-                # Rule for HliSessionError
-                elif "SessionFactory.OpenSession" in last_event["function"]:
-                    if self.data.states_counts[S.HliSessionError] >= self.logs_per_class: continue
-                    
-                    self.data.add(event_to_vector(seq), S.HliSessionError)
-                    continue
-            # Rule for Normal data
             else:
-                if self.data.states_counts[S.Normal] >= self.logs_per_class: continue
+                return event_to_vector(window), S.Normal
+                
+        # Rule for Normal data
+        else:
+            return event_to_vector(window), S.Normal
 
-                self.data.add(event_to_vector(seq), S.Normal)
-                continue
-        
-        # log
-        if self.volatile:
-            print(f"State counts:")
-            for k, v in self.data.states_counts.items(): print(f"  - {k} : {v}")
 
-        # break out of the loop once all classes have the required number
-        if all(v == self.logs_per_class for v in self.data.states_counts.values()):
-            print(f"All states have the desired log count")
+    def preprocess_log_line(self, log_file, line_n):
+        timestamp_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d{4}")
+    
+        with open(log_file, 'r') as file:
+            lines = file.readlines()
+
+        # Ensure line_number is in range
+        line_n = min(line_n, len(lines))
+        start = None
         
+        for i in range(line_n - 1, -1, -1):  # Go backward from the specified line
+            if timestamp_pattern.search(lines[i]):
+                start = i
+                break
+        
+        if start is None:
+            return None, None, None
+
+        last_line = None
+        events = []
+        for i in range(start, len(lines)):
+            line = lines[i].strip("\n")
+
+            # if this is the start of a log entry, create a new event
+            parts = line.split("|")
+            if len(parts) >= 4 and re.search(r"^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d{4}", parts[0]):
+                if len(events) >= self.window_size:
+                    last_line = i
+                    break
+                event = {
+                    "timestamp": parts[0].strip(),
+                    "log_level": parts[1].strip(),
+                    "function": parts[2].strip(),
+                    "log_message": parts[3].strip()
+                }
+                events.append(event)
+            
+            # otherwise add to the previous log message
+            elif events:
+                events[-1]["log_message"] += "\n" + line
+
+        if len(events) != self.window_size:
+            return None, None, None
+
+        vec, label = self.annotate_and_encode_window(events)
+        return vec, label, events, last_line
+        
+
 
     def save(self, path: str | None = None):
         if path is None:
