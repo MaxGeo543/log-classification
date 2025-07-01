@@ -7,11 +7,18 @@ import os
 import tensorflow as tf
 from preprocessor import Preprocessor
 
+from collections import defaultdict
+import json
+
 
 
 preprocessor_file = "./data/preprocessors/preprocessor_20_smallest_files_100lpc_20ws_BERTencx16.zip"
 # model_weights = "./models/vary_lstm/lstm_1x50_drop0.0_rec0.0_lr0.001_bs32_ep1000_earlystpval_loss10True_20250624_145128.keras"
-model_weights = "./models/vary_transformer_parameters/transformer_2x128_heads4_ffdim256_drop0.2_lr0.001_bs32_ep1000_earlystpval_loss10True_20250619_141304.keras"
+# this model does not create nans: model_weights = "./models/vary_transformer_parameters/transformer_2x128_heads4_ffdim256_drop0_lr0.001_bs32_ep1000_earlystpval_loss10True_20250619_135242.keras"
+# this model does also not create nans and additionally has more class 0s: model_weights = "./models/vary_transformer_parameters/transformer_8x512_heads8_ffdim512_drop0.2_lr0.001_bs32_ep1000_earlystpval_loss10True_20250619_141410.keras"
+# this model does also not create nans: model_weights = "./models/vary_transformer_parameters/transformer_3x128_heads4_ffdim256_drop0_lr0.001_bs32_ep1000_earlystpval_loss10True_20250619_140632.keras"
+model_weights = "./models/vary_transformer_parameters/transformer_2x128_heads4_ffdim256_drop0_lr0.001_bs32_ep1000_earlystpval_loss10True_20250619_135242.keras"
+
 
 def load_model(weights_path: str):
     model = _load_model(weights_path, custom_objects={'PositionalEncoding': PositionalEncoding})
@@ -36,18 +43,28 @@ def test_random_line(model: Sequential, preprocessor: Preprocessor, directory, s
 
     # preprocess and annotate the event
     print(f"file {file} line {line}")
-    vec, label, events, _ = preprocessor.preprocess_log_line(file, line)
+    try:
+        vec, label, events, _ = preprocessor.preprocess_log_line(file, line)
+    except:
+        print("Error: Label encoder got an unknown label")
+        return "label", None
+    
     if vec is None:
-        return None, None
+        print("Error: could't preprocess Datapoint, the line was likely too close to the end")
+        print()
+        return "datapoint", None
     vec = np.expand_dims(vec, axis=0)
 
     predictions = model.predict(vec)
     pred = np.argmax(predictions, axis=1)
     actual = label
 
-    # print(events)
-    # print(vec)
     print(predictions)
+
+    if tf.math.reduce_any(tf.math.is_nan(predictions)):
+        print()
+        return "nan", None
+
     print(f"predicted: {pred}")
     print(f"actual: {actual}")
     print()
@@ -56,39 +73,41 @@ def test_random_line(model: Sequential, preprocessor: Preprocessor, directory, s
 
 
 if __name__ == "__main__":
-    if False:
-        model = load_model(model_weights)
-        preprocessor = Preprocessor.load(preprocessor_file)
-        
-        vec, label, events, _ = preprocessor.preprocess_log_line("./data/CCI/CCLog-backup.752.log", 48597)
-        vec = np.expand_dims(vec, axis=0)
-        for i in range(len(model.layers)):
-            intermediate_model = tf.keras.Model(inputs=model.input, outputs=model.layers[i].output)
-            out = intermediate_model.predict(vec)
-            print("LAYER", i)
-            print(out)
-        
-        
-        quit()
-    elif True:
-        model = load_model(model_weights)
-        preprocessor = Preprocessor.load(preprocessor_file)
-        
-        vec, label, events, _ = preprocessor.preprocess_log_line("./data/CCI/CCLog-backup.752.log", 48597)
-        vec = np.expand_dims(vec, axis=0)
-        final_hidden = tf.keras.Model(inputs=model.input, outputs=model.layers[-2].output)
-        output = final_hidden.predict(vec)
-        print(output)  # Check for large or weird values
-
-        last_layer = model.layers[-1]
-        print(last_layer(output)) 
-        quit()
     
-
-    model = load_model(model_weights)
     preprocessor = Preprocessor.load(preprocessor_file)
-    data_dir = "./data/CCI"
+    
+    model_results = {}
 
-    for i in range(10):
-        prediction, actual = test_random_line(model, preprocessor, data_dir)
-        # print(prediction, actual)
+    directory = "./models/vary_lstm"
+    model_files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f)) and f.endswith("keras")]
+    for model_weights in model_files:
+        print(model_weights)
+        model = load_model(os.path.join(directory, model_weights))
+        model_results[model_weights] = {
+            "nans": 0,
+            "datapoint errors": 0,
+            "label errors": 0,
+            "pred_actual pairs": [],
+            "correct predictions": 0
+        }
+        i = 0
+        while i < 50:
+            pred, actual = test_random_line(model, preprocessor, "./data/CCI")
+
+            if pred == "datapoint":
+                model_results[model_weights]["datapoint errors"] += 1
+            elif pred == "label":
+                model_results[model_weights]["label errors"] += 1
+            elif pred == "nan":
+                model_results[model_weights]["nans"] += 1
+            else:
+                if int(pred[0]) == actual: 
+                    model_results[model_weights]["correct predictions"] += 1
+                model_results[model_weights]["pred_actual pairs"].append((int(pred[0]), actual))
+                i += 1
+    print(model_results)
+
+    with open("lstm_results.json", "w") as f:
+        json.dump(model_results, f, indent=2)
+
+    
