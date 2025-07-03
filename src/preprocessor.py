@@ -11,10 +11,12 @@ from collections import defaultdict
 from states import States as S
 import datetime
 from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import OrdinalEncoder
 from util import *
 import random
 import numpy as np
 from message_encoder import *
+from function_encoder import *
 import json
 import os
 import joblib
@@ -166,9 +168,9 @@ class Preprocessor:
         except KeyboardInterrupt:
             pass
         self.message_encoder.initialize([ev["log_message"] for ev in self.events])
+
         self.function_encoder = LabelEncoder()
         self.function_encoder.fit([ev["function"] for ev in self.events])
-        
     
     def initialize(self):
         self.message_encoder.initialize([ev["log_message"] for ev in self.events])

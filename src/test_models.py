@@ -1,4 +1,4 @@
-from positional_encoding import PositionalEncoding
+from positional_encoding import PositionalEncoding, PositionalEncoding2
 from keras.models import load_model as _load_model
 from keras.models import Sequential
 import numpy as np
@@ -7,7 +7,6 @@ import os
 import tensorflow as tf
 from preprocessor import Preprocessor
 
-from collections import defaultdict
 import json
 
 
@@ -17,11 +16,10 @@ preprocessor_file = "./data/preprocessors/preprocessor_20_smallest_files_100lpc_
 # this model does not create nans: model_weights = "./models/vary_transformer_parameters/transformer_2x128_heads4_ffdim256_drop0_lr0.001_bs32_ep1000_earlystpval_loss10True_20250619_135242.keras"
 # this model does also not create nans and additionally has more class 0s: model_weights = "./models/vary_transformer_parameters/transformer_8x512_heads8_ffdim512_drop0.2_lr0.001_bs32_ep1000_earlystpval_loss10True_20250619_141410.keras"
 # this model does also not create nans: model_weights = "./models/vary_transformer_parameters/transformer_3x128_heads4_ffdim256_drop0_lr0.001_bs32_ep1000_earlystpval_loss10True_20250619_140632.keras"
-model_weights = "./models/vary_transformer_parameters/transformer_2x128_heads4_ffdim256_drop0_lr0.001_bs32_ep1000_earlystpval_loss10True_20250619_135242.keras"
 
 
 def load_model(weights_path: str):
-    model = _load_model(weights_path, custom_objects={'PositionalEncoding': PositionalEncoding})
+    model = _load_model(weights_path, custom_objects={'PositionalEncoding': PositionalEncoding, 'PositionalEncoding2': PositionalEncoding2})
     return model
 
 def test_random_line(model: Sequential, preprocessor: Preprocessor, directory, seed = 42):
