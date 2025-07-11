@@ -23,7 +23,7 @@ import joblib
 import zipfile
 import tempfile
 
-DATA_PATH = r"C:\Users\a_gerw500\Documents\agmge\log-classification\data"
+DATA_PATH = r"D:\mgeo\projects\log-classification\data"
 LOG_PATH = DATA_PATH + "/CCI/CCLog-backup.{n}.log"
 LOG_LEVEL_MAP = {'Trace': 0, 'Debug': 1, 'Info': 2, 'Warn': 3, 'Error': 4, 'Fatal': 5}
 
@@ -241,6 +241,11 @@ class Preprocessor:
 
         # let a sliding window go over the events list
         for i in range(self.window_size, len(self.events)):
+            # break out of the loop once all classes have the required number
+            if all(v == self.logs_per_class for v in self.data.states_counts.values()):
+                print(f"All states have the desired log count")
+                break
+            
             # update progress
             if self.volatile: progress.update(1)
             
@@ -250,16 +255,12 @@ class Preprocessor:
             vec, label = self.annotate_and_encode_window(window)
             if self.data.states_counts[label] >= self.logs_per_class: continue
             else: self.data.add(vec, label)
-        
+
         # log
         if self.volatile:
             print(f"State counts:")
             for k, v in self.data.states_counts.items(): print(f"  - {k} : {v}")
 
-        # break out of the loop once all classes have the required number
-        if all(v == self.logs_per_class for v in self.data.states_counts.values()):
-            print(f"All states have the desired log count")
-    
     def annotate_and_encode_window(self, window):
         def event_to_vector(seq):
             sequence_features = []
@@ -353,7 +354,6 @@ class Preprocessor:
         else:
             return event_to_vector(window), S.Normal
 
-
     def preprocess_log_line(self, log_file, line_n):
         timestamp_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d{4}")
     
@@ -401,8 +401,6 @@ class Preprocessor:
         vec, label = self.annotate_and_encode_window(events)
         return vec, label, events, last_line
         
-
-
     def save(self, path: str | None = None):
         if path is None:
             path = DATA_PATH + f"/preprocessors/preprocessor_{len(self.loaded_files)}files_"

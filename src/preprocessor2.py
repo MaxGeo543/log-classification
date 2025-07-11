@@ -173,10 +173,15 @@ class Preprocessor:
         if function_encoder is None:
             self.function_encoder = FunctionOrdinalEncoder()
             self.function_encoder.initialize([ev["function"] for ev in self.events])
+        else:
+            self.function_encoder = function_encoder
     
-    def initialize(self):
+    def initialize(self, function_encoder: FunctionEncoder | None = None):
         self.message_encoder.initialize([ev["log_message"] for ev in self.events])
-        self.function_encoder.initialize([ev["function"] for ev in self.events])
+        if function_encoder is None:
+            self.function_encoder.initialize([ev["function"] for ev in self.events])
+        else:
+            self.function_encoder = function_encoder
 
     def load_logfiles(self, log_numbers: list[int]):
         try:
@@ -236,12 +241,15 @@ class Preprocessor:
         self.events.extend(events)
         self.loaded_files.add(path)
     
-    def preprocess(self, ignore_max_logs_per_class=False):
+    def preprocess(self, ignore_max_logs_per_class=False, step=1):
         # initialize tracker for progress
-        if self.volatile: progress = tqdm(total=len(self.events), desc="annotating events")
+        if self.volatile: progress = tqdm(total=len(self.events)//step, desc="annotating events")
 
         # let a sliding window go over the events list
-        for i in range(self.window_size, len(self.events)):
+        for i in range(self.window_size, len(self.events), step):
+            if (not ignore_max_logs_per_class) and len(self.data.states_counts) != 0 and all(v == self.logs_per_class for v in self.data.states_counts.values()):
+                break
+            
             # update progress
             if self.volatile: progress.update(1)
             
@@ -249,15 +257,18 @@ class Preprocessor:
             window = self.events[(i-self.window_size):i]
             
             vec, label = self.annotate_and_encode_window(window)
-            if not ignore_max_logs_per_class and self.data.states_counts[label] >= self.logs_per_class: continue
+            if (not ignore_max_logs_per_class) and self.data.states_counts[label] >= self.logs_per_class: 
+                continue
             else: self.data.add(vec, label)
+
+            
         
         # log
         if self.volatile:
             print(f"State counts:")
             for k, v in self.data.states_counts.items(): print(f"  - {k} : {v}")
 
-        if not ignore_max_logs_per_class and all(v == self.logs_per_class for v in self.data.states_counts.values()):
+        if (not ignore_max_logs_per_class) and all(v == self.logs_per_class for v in self.data.states_counts.values()):
             print(f"All states have the desired log count")
     
     def annotate_and_encode_window(self, window):
@@ -405,7 +416,7 @@ class Preprocessor:
 
     def save(self, path: str | None = None):
         if path is None:
-            path = DATA_PATH + f"/preprocessors/preprocessor_{len(self.loaded_files)}files_"
+            path = DATA_PATH + f"/preprocessors/preprocessor2_{len(self.loaded_files)}files_"
             m = "BERTenc" if isinstance(self.message_encoder, BERTEncoder) else \
                 "BERTemb" if isinstance(self.message_encoder, BERTEmbeddingEncoder) else \
                 "TextVec" if isinstance(self.message_encoder, TextVectorizationEncoder) else "enc"
@@ -461,7 +472,7 @@ class Preprocessor:
         return path
 
     @staticmethod
-    def load(path: str, volatile: bool = True):
+    def load(path: str, function_encoder: FunctionEncoder | None = None, volatile: bool = True):
         if not zipfile.is_zipfile(path):
             raise ValueError(f"The provided path is not a zip file: {path}")
 
@@ -500,7 +511,7 @@ class Preprocessor:
                 obj.events = [dict(ev) for ev in json_obj.get("events", [])]
                 obj.loaded_files = set(json_obj.get("loaded_files", []))
 
-                obj.initialize()
+                obj.initialize(function_encoder)
 
                 return obj
 

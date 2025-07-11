@@ -42,8 +42,6 @@ class TextVectorizationEncoder(MessageEncoder):
     def get_result_shape(self):
         return self._text_vectorizer._output_sequence_length
 
-
-
 class BERTEncoder(MessageEncoder):
     def __init__(self, 
                  max_length=16):
