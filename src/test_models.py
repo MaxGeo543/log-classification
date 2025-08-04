@@ -9,13 +9,7 @@ from preprocessor import Preprocessor
 
 import json
 
-
-
 preprocessor_file = "./data/preprocessors/preprocessor_20_smallest_files_100lpc_20ws_BERTencx16.zip"
-# model_weights = "./models/vary_lstm/lstm_1x50_drop0.0_rec0.0_lr0.001_bs32_ep1000_earlystpval_loss10True_20250624_145128.keras"
-# this model does not create nans: model_weights = "./models/vary_transformer_parameters/transformer_2x128_heads4_ffdim256_drop0_lr0.001_bs32_ep1000_earlystpval_loss10True_20250619_135242.keras"
-# this model does also not create nans and additionally has more class 0s: model_weights = "./models/vary_transformer_parameters/transformer_8x512_heads8_ffdim512_drop0.2_lr0.001_bs32_ep1000_earlystpval_loss10True_20250619_141410.keras"
-# this model does also not create nans: model_weights = "./models/vary_transformer_parameters/transformer_3x128_heads4_ffdim256_drop0_lr0.001_bs32_ep1000_earlystpval_loss10True_20250619_140632.keras"
 
 
 def load_model(weights_path: str):

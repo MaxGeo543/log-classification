@@ -23,6 +23,9 @@ import joblib
 import zipfile
 import tempfile
 
+from datetime_encoder import DatetimeEncoder
+from datetime_features import DatetimeFeature, DatetimeFeatureBase
+
 DATA_PATH = r"D:\mgeo\projects\log-classification\data"
 LOG_PATH = DATA_PATH + "/CCI/CCLog-backup.{n}.log"
 LOG_LEVEL_MAP = {'Trace': 0, 'Debug': 1, 'Info': 2, 'Warn': 3, 'Error': 4, 'Fatal': 5}
@@ -148,26 +151,37 @@ class Dataset:
 class Preprocessor:
     def __init__(self, 
                  log_numbers: list[int], 
-                 message_encoder:  MessageEncoder | None,
+
+                 message_encoder:  MessageEncoder,
+                 function_encoder: FunctionEncoder, 
+                 datetime_encoder: DatetimeEncoder,
+
                  logs_per_class: int = 100,
                  window_size: int = 20,
-                 extended_datetime_features: bool = False,
-                 function_encoder: None | FunctionEncoder = None,
+
                  volatile: bool = False):
+        
+        # whether to print progress and information while training
         self.volatile = volatile
 
-        self.extended_datetime_features = extended_datetime_features
+        # set basic hyperparameters
         self.logs_per_class = logs_per_class
         self.window_size = window_size
         self.message_encoder = message_encoder
+        self.function_encoder = function_encoder
+        self.datetime_encoder = datetime_encoder
+
+        # initialize set of loaded files
         self.loaded_files = set()
 
-        self.data = Dataset((self.window_size, (11 if self.extended_datetime_features else 2) + 1 + 1 + self.message_encoder.get_result_shape()))
+        self.data = Dataset((self.window_size, datetime_encoder.dimension + 1 + 1 + self.message_encoder.get_result_shape()))
         self.events = []
         try:
             for i in log_numbers: self.load_logfile(LOG_PATH.format(n=i))
         except KeyboardInterrupt:
             pass
+
+
         self.message_encoder.initialize([ev["log_message"] for ev in self.events])
 
         if function_encoder is None:
