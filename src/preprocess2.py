@@ -19,7 +19,7 @@ with open("./data/unique_methods.txt") as f:
     function_encoder = FunctionOrdinalEncoder()
     function_encoder.initialize(lines)
 pp = Preprocessor(log_files, message_encoder, logs_per_class, window_size, extended_datetime_features, function_encoder=function_encoder, volatile=True)
-pp.preprocess()
+pp.preprocess_dataset()
 
 
 pp.save()

@@ -9,71 +9,76 @@ except (NameError, ImportError):
     
 from collections import defaultdict
 from states import States as S
-import datetime
-from sklearn.preprocessing import LabelEncoder
-from sklearn.preprocessing import OrdinalEncoder
+from datetime import datetime
 from util import *
 import random
 import numpy as np
-from message_encoder import *
-from function_encoder import *
 import json
 import os
 import joblib
 import zipfile
 import tempfile
 
-from datetime_encoder import DatetimeEncoder
-from datetime_features import DatetimeFeature, DatetimeFeatureBase
+from encoders.datetime_encoder import DatetimeEncoder
+from encoders.datetime_features import DatetimeFeature, DatetimeFeatureBase
+from encoders.loglevel_encoder import *
+from encoders.message_encoder import *
+from encoders.function_encoder import *
+from encoders.save_encoder import save_encoder_if_new
+from hash_list import hash_list_to_string
 
 DATA_PATH = r"D:\mgeo\projects\log-classification\data"
 LOG_PATH = DATA_PATH + "/CCI/CCLog-backup.{n}.log"
 LOG_LEVEL_MAP = {'Trace': 0, 'Debug': 1, 'Info': 2, 'Warn': 3, 'Error': 4, 'Fatal': 5}
 
 class Dataset:
-    def __init__(self, entry_shape):
+    def __init__(self, entry_shape, preprocessor_key: str | None = None, loaded_logfiles: set[str] | None = None):
         self.data_list = [] # entries are (feature tensor, state) where feature tensor has the shape entr_shape
         
-        self.data_array_x = None 
-        self.data_array_y = None 
-        self.const = False
+        self.preprocessor_key = preprocessor_key
+        self.loaded_logfiles = loaded_logfiles
+        
+        self.data_array_x = None
+        self.data_array_y = None
+        
+        self._const = False
         
         self.entry_shape = entry_shape
         self.states_counts = defaultdict(int)
     
     def add(self, features: np.ndarray, state):
-        if not features.shape == self.entry_shape:
-            raise Exception("Shape must be the same as all other entries.")
-        if self.const:
-            raise Exception("Can't edit constant Dataset.")
+        if not features.shape == self.entry_shape: raise Exception("Shape must be the same as all other entries.")
+        if self._const: raise Exception("Can't edit constant Dataset.")
 
         self.states_counts[state] += 1
         self.data_list.append((features, state))
     
     def as_xy_arrays(self):
-        if len(self.data_list) != 0:
+        # try to define data as array if Dataset is not const
+        if not self._const and len(self.data_list) != 0:
             x, y = zip(*self.data_list)
             x = np.array(x)
             y = np.array(y)
-
-            if not self.const:
-                self.data_array_x, self.data_array_y = x, y
+        
+        # raise if no data arrays
         if self.data_array_x is None or self.data_array_y is None:
-            raise Exception("Data array is not defined.")
+            raise Exception("Data array is not and could not be defined.")
 
+        # return data arrays
         return self.data_array_x, self.data_array_y
     
-    def stratified_split(self, ratios=(4, 1), seed=42):
-        if len(self.data_list) != 0:
+    def stratified_split(self, ratios = (4, 1), seed = None):
+        # try to define data as array if Dataset is not const
+        if not self._const and len(self.data_list) != 0:
             x, y = zip(*self.data_list)
             x = np.array(x)
             y = np.array(y)
 
-            if not self.const:
-                self.data_array_x, self.data_array_y = x, y
+        # raise if no data arrays
         if self.data_array_x is None or self.data_array_y is None:
-            raise Exception("Data array is not defined.")
+            raise Exception("Data array is not and could not be defined.")
         
+        # seed the random module and np.random module
         random.seed(seed)
         np.random.seed(seed)
         class_buckets = defaultdict(list)
@@ -102,7 +107,7 @@ class Dataset:
                 splits[i].extend(samples[start:start + size])
                 start += size
 
-        # Optionally shuffle the final splits
+        # Shuffle the final splits
         result = []
         for split in splits:
             random.shuffle(split)
@@ -113,35 +118,62 @@ class Dataset:
 
         return result
         
-    def save(self, file_path: str):
+    def save(self, file_path: str, save_meta: bool):
+        if self._const: raise Exception("Can't save Dataset flagged as constant")
+        if not file_path.endswith(".npz"): raise ValueError("file_path must be an .npz file")
+
+        # try to define data as array if Dataset is not const
         if len(self.data_list) != 0:
             x, y = zip(*self.data_list)
             x = np.array(x)
             y = np.array(y)
-
-            if not self.const:
-                self.data_array_x, self.data_array_y = x, y
-        if self.data_array_x is None or self.data_array_y is None:
-            raise Exception("Data array is not defined.")
         
-        np.savez(file_path, x=self.data_array_x, y=self.data_array_y)
+        # raise if no data arrays
+        if self.data_array_x is None or self.data_array_y is None:
+            raise Exception("Data array is not and could not be defined.")
+        
+        # format the file path
+        dt = datetime.now().strftime('%Y%m%d_%H%M%S')
+        file_path = file_path.format(
+            preprocessor_key=self.preprocessor_key,
+            timestamp=dt,
+            num_files=len(self.loaded_logfiles))
+        # save the npz file
+        np.savez(file_path, x=self.data_array_x, y=self.data_array_y, preprocessor_key=self.preprocessor_key)
+        
+        # save metadata
+        if save_meta:
+            meta = {
+                "loaded_logfiles": list(self.loaded_logfiles),
+                "preprocessor_key": self.preprocessor_key,
+                "saved_at": dt
+            }
+            json_path = file_path.replace(".npz", ".json")
+            with open(json_path, "w") as f:
+                json.dump(meta)
 
     @staticmethod
     def load(file_path: str, validate_shape: bool = True) -> Dataset:
+        if not file_path.endswith(".npz"): raise ValueError("file_path must be an .npz file")
+        
+        # load npz file
         npz = np.load(file_path)
         data_x, data_y = npz['x'], npz['y']
+        preprocessor_key = npz['preprocessor_key'].item()
         npz.close()
         
+        # set and validate shape
         shape = data_x[0].shape
-        
         if validate_shape and not all(d.shape == shape for d in data_x):
             raise Exception("feature shapes must be all the same")
         
-        ds = Dataset(shape)
+        # create dataset
+        ds = Dataset(shape, preprocessor_key)
         ds.data_array_x = data_x
         ds.data_array_y = data_y
-        ds.const = True
+        ds._const = True
 
+        # set states counts
         for state in data_y:
             ds.states_counts[state] += 1
 
@@ -150,52 +182,42 @@ class Dataset:
 
 class Preprocessor:
     def __init__(self, 
-                 log_numbers: list[int], 
-
                  message_encoder:  MessageEncoder,
-                 function_encoder: FunctionEncoder, 
+                 function_encoder: FunctionEncoder,
                  datetime_encoder: DatetimeEncoder,
+                 log_level_encoder: LogLevelEncoder,
 
-                 logs_per_class: int = 100,
                  window_size: int = 20,
+                 name: str | None = None,
 
                  volatile: bool = False):
         
+        self.name = name or "preprocessor"
+
         # whether to print progress and information while training
         self.volatile = volatile
 
         # set basic hyperparameters
-        self.logs_per_class = logs_per_class
         self.window_size = window_size
+        # encoders
         self.message_encoder = message_encoder
         self.function_encoder = function_encoder
         self.datetime_encoder = datetime_encoder
+        self.loglevel_encoder = log_level_encoder
 
         # initialize set of loaded files
         self.loaded_files = set()
-
-        self.data = Dataset((self.window_size, datetime_encoder.dimension + 1 + 1 + self.message_encoder.get_result_shape()))
+        # load events and catch keyboard interrupts
         self.events = []
-        try:
-            for i in log_numbers: self.load_logfile(LOG_PATH.format(n=i))
-        except KeyboardInterrupt:
-            pass
 
+        if not self.message_encoder.initialized: self.message_encoder.initialize([ev["log_message"] for ev in self.events])
+        if not self.function_encoder.initialized: self.function_encoder.initialize([ev["function"] for ev in self.events])
+        if not self.loglevel_encoder.initialized: self.loglevel_encoder.initialize([ev["log_level"] for ev in self.events])
 
-        self.message_encoder.initialize([ev["log_message"] for ev in self.events])
-
-        if function_encoder is None:
-            self.function_encoder = FunctionOrdinalEncoder()
-            self.function_encoder.initialize([ev["function"] for ev in self.events])
-        else:
-            self.function_encoder = function_encoder
-    
-    def initialize(self, function_encoder: FunctionEncoder | None = None):
-        self.message_encoder.initialize([ev["log_message"] for ev in self.events])
-        if function_encoder is None:
-            self.function_encoder.initialize([ev["function"] for ev in self.events])
-        else:
-            self.function_encoder = function_encoder
+    def initialize(self):
+        if not self.message_encoder.initialized: self.message_encoder.initialize([ev["log_message"] for ev in self.events])
+        if not self.function_encoder.initialized: self.function_encoder.initialize([ev["function"] for ev in self.events])
+        if not self.loglevel_encoder.initialized: self.loglevel_encoder.initialize([ev["log_leve"] for ev in self.events])
 
     def load_logfiles(self, log_numbers: list[int]):
         try:
@@ -255,13 +277,25 @@ class Preprocessor:
         self.events.extend(events)
         self.loaded_files.add(path)
     
-    def preprocess(self, ignore_max_logs_per_class=False, step=1):
+    def preprocess_dataset(self, logs_per_class: int | None = 100, step: int = 1) -> Dataset:
+        if len(self.events):
+            raise ValueError("events must not be empty")        
+        
+        data = Dataset(
+            (self.window_size, 
+             self.datetime_encoder.get_dimension() 
+             + self.loglevel_encoder.get_dimension() 
+             + self.function_encoder.get_dimension() 
+             + self.message_encoder.get_dimension()),
+             self.get_key(),
+             self.loaded_files)
+        
         # initialize tracker for progress
         if self.volatile: progress = tqdm(total=len(self.events)//step, desc="annotating events")
 
         # let a sliding window go over the events list
         for i in range(self.window_size, len(self.events), step):
-            if (not ignore_max_logs_per_class) and len(self.data.states_counts) != 0 and all(v == self.logs_per_class for v in self.data.states_counts.values()):
+            if (logs_per_class is not None) and len(data.states_counts) != 0 and all(v == logs_per_class for v in data.states_counts.values()):
                 break
             
             # update progress
@@ -271,88 +305,42 @@ class Preprocessor:
             window = self.events[(i-self.window_size):i]
             
             vec, label = self.annotate_and_encode_window(window)
-            if (not ignore_max_logs_per_class) and self.data.states_counts[label] >= self.logs_per_class: 
+            if (logs_per_class is not None) and data.states_counts[label] >= logs_per_class: 
                 continue
-            else: self.data.add(vec, label)
+            else: data.add(vec, label)
 
             
         
         # log
         if self.volatile:
             print(f"State counts:")
-            for k, v in self.data.states_counts.items(): print(f"  - {k} : {v}")
+            for k, v in data.states_counts.items(): print(f"  - {k} : {v}")
 
-        if (not ignore_max_logs_per_class) and all(v == self.logs_per_class for v in self.data.states_counts.values()):
+        if (logs_per_class is not None) and all(v == logs_per_class for v in data.states_counts.values()):
             print(f"All states have the desired log count")
+
+        return data
     
     def annotate_and_encode_window(self, window):
         def event_to_vector(seq):
             sequence_features = []
 
             for ev in seq:
-                dt = datetime.datetime.fromisoformat(ev["timestamp"])
-                dt = extract_date_time_features(dt)
-                log_level = LOG_LEVEL_MAP.get(ev['log_level'], 0)
-                function_id = self.function_encoder.encode(ev['function'])
-                log_msg_token = self.message_encoder.encode(ev['log_message'])
-                # log_msg_token_id = log_msg_token[0] if log_msg_token else 0
+                dt = datetime.fromisoformat(ev["timestamp"])
+                dt_feature = self.datetime_encoder.extract_date_time_features(dt)
 
-                feature_vector = [val for val in dt.values()] + [log_level, function_id, log_msg_token]
+                log_level_feature = self.loglevel_encoder.encode(ev['log_level'])
+
+                function_feature = self.function_encoder.encode(ev['function'])
+
+                log_msg_feature = self.message_encoder.encode(ev['log_message'])
+
+                feature_vector = [val for val in dt_feature.values()] + [log_level_feature, function_feature, log_msg_feature]
                 flat_feature = np.concatenate([to_flat_array(f) for f in feature_vector])
                 sequence_features.append(flat_feature)
 
             return np.array(sequence_features)
         
-        def extract_date_time_features(dt: datetime.datetime, normalize: bool = False):
-            if not self.extended_datetime_features:
-                # date as days since epoch
-                date_feature = (dt.date() - datetime.datetime(1970, 1, 1).date()).days
-                # Time in seconds since midnight
-                time_feature = dt.hour * 3600 + dt.minute * 60 + dt.second
-
-                return {"days_since_epoch": date_feature, "seconds_since_midnight": time_feature}
-
-            features = {}
-
-            # Date-based features
-            epoch = datetime.datetime(1970, 1, 1)
-            days_since_epoch = (dt.date() - epoch.date()).days
-            features['days_since_epoch'] = days_since_epoch
-
-            features['year'] = dt.year
-            features['month'] = dt.month        # 1–12
-            features['day'] = dt.day            # 1–31
-            features['weekday'] = dt.weekday()  # 0 = Monday, 6 = Sunday
-            features['is_weekend'] = int(dt.weekday() >= 5)
-
-            # Time-based features
-            hour = dt.hour + dt.minute / 60 + dt.second / 3600
-            features['hour'] = dt.hour
-            features['minute'] = dt.minute
-            features['second'] = dt.second
-
-            # Cyclical time features
-            features['sin_hour'] = np.sin(2 * np.pi * hour / 24)
-            features['cos_hour'] = np.cos(2 * np.pi * hour / 24)
-
-            # Normalize numeric features (rough scaling — adjust as needed)
-            max_values = {
-                'days_since_epoch': 20000,  # ~55 years from 1970 to 2025
-                'year': 2100,
-                'month': 12,
-                'day': 31,
-                'weekday': 6,
-                'hour': 23,
-                'minute': 59,
-                'second': 59
-            }
-
-            for key in list(features):
-                if key in max_values:
-                    features[key] = features[key] / max_values[key]
-
-            return features
-
         last_event = window[-1]
 
         ############################
@@ -426,108 +414,80 @@ class Preprocessor:
         vec, label = self.annotate_and_encode_window(events)
         return vec, label, events, last_line
         
+    def get_key(self):
+        key = hash_list_to_string([
+            self.message_encoder.get_key(),
+            self.function_encoder.get_key(),
+            self.loglevel_encoder.get_key(),
+            self.datetime_encoder.get_key(),
 
+            str(self.window_size)
+            ], 16)
+        
+        return key
 
-    def save(self, path: str | None = None):
-        if path is None:
-            path = DATA_PATH + f"/preprocessors/preprocessor2_{len(self.loaded_files)}files_"
-            m = "BERTenc" if isinstance(self.message_encoder, BERTEncoder) else \
-                "BERTemb" if isinstance(self.message_encoder, BERTEmbeddingEncoder) else \
-                "TextVec" if isinstance(self.message_encoder, TextVectorizationEncoder) else "enc"
-            path += f"{self.logs_per_class}lpc_{self.window_size}ws_{m}x{self.message_encoder.get_result_shape() if self.message_encoder is not None else ''}"
-            if self.extended_datetime_features:
-                path += "_extdt"
-            path += ".zip"
+    def save(self, path: str):
+        # get values for name formatting
+        key = self.get_key()
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # format preprocessor name and create directories
+        preprocessor_path = path + f"/[{key}][{timestamp}]{self.name}.json"
+        os.makedirs(os.path.dirname(preprocessor_path), exist_ok=True)
 
-        # Use a temporary directory to store intermediate files
-        with tempfile.TemporaryDirectory() as temp_dir:
-            message_encoder_path = os.path.join(temp_dir, "message_encoder.pkl")
-            function_encoder_path = os.path.join(temp_dir, "function_encoder.pkl")
-            data_path = os.path.join(temp_dir, "data.npz")
-            json_path = os.path.join(temp_dir, "metadata.json")
-
-            # Save encoders
-            if hasattr(self, "message_encoder"):
-                joblib.dump(self.message_encoder, message_encoder_path)
-
-            if hasattr(self, "function_encoder"):
-                joblib.dump(self.function_encoder, function_encoder_path)
-
-            if self.data is not None:
-                self.data.save(data_path)
-
-            # Build the JSON metadata
-            obj = {
-                "extended_datetime_features": self.extended_datetime_features,
-                "logs_per_class": self.logs_per_class,
-                "window_size": self.window_size,
-                "message_encoder_path": "message_encoder.pkl",
-                "function_encoder_path": "function_encoder.pkl",
-                "data_path": "data.npz",
-                "loaded_files": list(self.loaded_files),
-                "events": self.events,
+        paths = [preprocessor_path]
+        # save the encoders and save their paths and keys in obj
+        obj = {
+            "window_size": self.window_size,
+            "name": self.name
             }
+        for encoder in [self.message_encoder, self.function_encoder, self.datetime_encoder, self.loglevel_encoder]:
+            encoder_t, k, filename = save_encoder_if_new(encoder, path, timestamp)
+            obj[f"{encoder_t}_k"] = k
+            obj[f"{encoder_t}_f"] = filename
+            paths.append(filename)
 
-            with open(json_path, 'w') as f:
-                json.dump(obj, f, indent=4)
+        # save the preprocessor json
+        with open(preprocessor_path, 'w') as f:
+            json.dump(obj, f, indent=4)
 
-            # Zip everything
-            with zipfile.ZipFile(path, 'w') as zf:
-                zf.write(json_path, "metadata.json")
-                if os.path.exists(message_encoder_path):
-                    zf.write(message_encoder_path, "message_encoder.pkl")
-                if os.path.exists(function_encoder_path):
-                    zf.write(function_encoder_path, "function_encoder.pkl")
-                if os.path.exists(data_path):
-                    zf.write(data_path, "data.npz")
-
-        return path
+        return paths
 
     @staticmethod
-    def load(path: str, function_encoder: FunctionEncoder | None = None, volatile: bool = True):
-        if not zipfile.is_zipfile(path):
-            raise ValueError(f"The provided path is not a zip file: {path}")
+    def load(preprocessor_path: str, 
+             custom_encoder_directory: str | None = None,
+             custom_encoder_paths: dict[str, str] | None = None,
+             volatile: bool = True):
+        with open(preprocessor_path, 'r') as f:
+            json_obj = json.load(f)
+        
+        name = json_obj["name"]
+        window_size = json_obj["window_size"]
+        encoders = {}
 
-        with zipfile.ZipFile(path, 'r') as zip_file:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                zip_file.extractall(temp_dir)
+        for encoder_t in ["datetime", "loglevel", "function", "message"]:
+            path = None
+            if custom_encoder_paths is not None and encoder_t in custom_encoder_paths:
+                path = custom_encoder_paths[encoder_t]
+            elif custom_encoder_directory is not None:
+                path = os.path.join(custom_encoder_directory, json_obj[f"{encoder_t}_f"])
+            else:
+                path = os.path.join(os.path.dirname(preprocessor_path), json_obj[f"{encoder_t}_f"])
 
-                # Load JSON metadata
-                metadata_path = os.path.join(temp_dir, "metadata.json")
-                with open(metadata_path, 'r') as f:
-                    json_obj = json.load(f)
+            # TODO: loading encoders logic
+            encoders[encoder_t] = ...
 
-                obj = object.__new__(Preprocessor)
-                obj.volatile = volatile
+        obj = Preprocessor(
+            message_encoder=encoders["message"],
+            datetime_encoder=encoders["datetime"],
+            loglevel_encoder=encoders["loglevel"],
+            function_encoder=encoders["function"],
+            window_size=window_size,
+            name=name,
+            volatile=volatile
+        )
 
-                # Load encoders
-                message_encoder_file = os.path.join(temp_dir, json_obj.get("message_encoder_path", "message_encoder.pkl"))
-                if os.path.exists(message_encoder_file):
-                    obj.message_encoder = joblib.load(message_encoder_file)
-
-                function_encoder_file = os.path.join(temp_dir, json_obj.get("function_encoder_path", "function_encoder.pkl"))
-                if os.path.exists(function_encoder_file):
-                    obj.function_encoder = joblib.load(function_encoder_file)
-
-                # Load data
-                data_file = os.path.join(temp_dir, json_obj.get("data_path", "data.npz"))
-                if os.path.exists(data_file):
-                    obj.data = Dataset.load(data_file)
-                else:
-                    raise Exception("No data found")
-
-                # Restore attributes
-                obj.extended_datetime_features = json_obj.get("extended_datetime_features", False)
-                obj.logs_per_class = json_obj.get("logs_per_class", 0)
-                obj.window_size = json_obj.get("window_size", 1)
-                obj.events = [dict(ev) for ev in json_obj.get("events", [])]
-                obj.loaded_files = set(json_obj.get("loaded_files", []))
-
-                obj.initialize(function_encoder)
-
-                return obj
+        return obj
 
 
 if __name__ == "__main__":
@@ -555,7 +515,7 @@ if __name__ == "__main__":
     extended_datetime_features = False                  # bool, whether the preprocessing should use a multitude of normalized features extracted from the date 
 
     pp = Preprocessor(log_files, message_encoder, logs_per_class, window_size, extended_datetime_features, True)
-    pp.preprocess()
+    pp.preprocess_dataset()
 
     train, test = pp.data.stratified_split((4, 1))
     X_train, y_train = train

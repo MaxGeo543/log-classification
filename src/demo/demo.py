@@ -1,6 +1,3 @@
-import tensorflow as tf
+x = set([1, 2, 3, 4, 5])
 
-gpus = tf.config.list_physical_devices('GPU')
-print(len(gpus))
-for gpu in gpus:
-    print(gpu)
+print(str(x))

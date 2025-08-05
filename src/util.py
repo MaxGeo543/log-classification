@@ -16,6 +16,8 @@ def to_flat_array(x):
         return np.array([x.item()])
     elif isinstance(x, (int, float)):
         return np.array([x])
+    elif isinstance(x, (list, tuple)):
+        return np.array(x)
     else:
         raise ValueError(f"Unsupported type: {type(x)}")
 
@@ -36,3 +38,4 @@ def get_sorted_log_numbers_by_size(directory):
 
     # Return only the numbers n
     return [n for n, _ in log_files]
+
