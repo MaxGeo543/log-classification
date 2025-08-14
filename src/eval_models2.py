@@ -8,7 +8,7 @@ from preprocessor import Preprocessor
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 
-from test_models import load_model, test_random_line
+from eval_models import load_model, test_random_line
 
 def get_files_with_extension(directory, extension):
     pattern = os.path.join(directory, f'*.{extension.lstrip(".")}')

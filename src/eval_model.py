@@ -9,7 +9,7 @@ from preprocessor import Preprocessor
 
 from collections import defaultdict
 import json
-from test_models import load_model, test_random_line
+from eval_models import load_model, test_random_line
 
 
 preprocessor_file = "./data/preprocessors/preprocessor_20_smallest_files_100lpc_20ws_BERTencx16.zip"

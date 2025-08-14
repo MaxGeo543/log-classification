@@ -1,5 +1,6 @@
 import hashlib
 import base64
+import numpy as np
 
 def hash_list_to_string(str_list, length):
     """
@@ -34,3 +35,12 @@ def hash_list_to_string(str_list, length):
     
     return extra[:length]
 
+def hash_ndarray(arr: np.ndarray) -> int:
+    if not isinstance(arr, np.ndarray):
+        raise TypeError("Input must be a NumPy ndarray.")
+    if arr.ndim != 1:
+        raise ValueError("Input must be a 1D array.")
+    if not np.issubdtype(arr.dtype, np.integer):
+        raise TypeError("Array must contain integers.")
+
+    return hash(tuple(arr))

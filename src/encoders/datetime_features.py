@@ -297,7 +297,6 @@ class SinceEpochDatetimeFeatureBase:
         pass
 
 
-
 class DatetimeFeature:
     """
     Provides multiple fature extraction strategies for datetime features. 
@@ -720,7 +719,55 @@ class DatetimeFeature:
             super().__init__(int(calendar.isleap(dt.year)))
 
 
+def _get_all_dt_classes():
+    def nested_classes_immediate(cls):
+        base = cls.__qualname__
+        base_depth = base.count('.')
+        return {
+            obj for obj in cls.__dict__.values()
+            if isinstance(obj, type)
+            and getattr(obj, "__qualname__", "").startswith(base + ".")
+            and obj.__qualname__.count('.') == base_depth + 1
+        }
+
+    def get_attached_classes(cls):
+        att = dict()
+
+        if issubclass(cls, NormalizedDatetimeFeatureBase):
+            x = cls.normalized
+            att[x.key] = x
+        if issubclass(cls, CyclicDatetimeFeatureBase):
+            x = cls.cyclic
+            att[x.key] = x
+            att[x.normalized.key] = x.normalized
+        if issubclass(cls, SinceMidnightDatetimeFeatureBase):
+            x = cls.since_midnight
+            att[x.key] = x
+        if issubclass(cls, SinceEpochDatetimeFeatureBase):
+            x = cls.since_epoch
+            att[x.key] = x
+        
+        return att
+
+    DT = DatetimeFeature
+    dt_classes = dict()
+
+    immediate = {dtf.key: dtf for dtf in nested_classes_immediate(DT)}
+    
+    for k, dtf in immediate.items():
+        dt_classes.update(get_attached_classes(dtf))
+    
+    dt_classes.update(immediate)
+
+    return dt_classes
+
+    
+
+
+DT_DICT = _get_all_dt_classes()
+
 if __name__ == "__main__":
-    x = DatetimeFeature.day.since_epoch(datetime.now(tz=timezone.utc))
-    print(x.value)
-    print(x.key)
+    print(DT_DICT["hour_normalized"](datetime.now()).value)
+    
+    print(len(DT_DICT))
+    for k in DT_DICT: print(k)

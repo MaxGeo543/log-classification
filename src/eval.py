@@ -1,4 +1,4 @@
-from preprocessor2 import Preprocessor
+from preprocessor import Preprocessor
 from function_encoder import *
 from message_encoder import *
 from util import get_sorted_log_numbers_by_size

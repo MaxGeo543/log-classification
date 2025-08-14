@@ -30,6 +30,7 @@ class FunctionLabelEncoder(FunctionEncoder):
     
     def initialize(self, all_functions):
         self.label_encoder.fit(all_functions)
+        self.initialized = True
     
     def encode(self, function):
         return self.label_encoder.transform([function])[0]
@@ -56,7 +57,7 @@ class FunctionOrdinalEncoder(FunctionEncoder):
     
     def encode(self, function):
         # Transform a single value, input must be 2D
-        return int(self.ordinal_encoder.transform([[function]])[0][0])
+        return self.ordinal_encoder.transform([[function]])[0]
 
     def get_dimension(self):
         return 1
@@ -76,6 +77,7 @@ class FunctionOneHotEncoder(FunctionEncoder):
         self.one_hot_encoder = OneHotEncoder(
             min_frequency=min_frequency, 
             max_categories=max_categories,
+            handle_unknown="infrequent_if_exist",
             sparse_output=True)
     
     def initialize(self, all_functions: list[str]):
@@ -83,10 +85,10 @@ class FunctionOneHotEncoder(FunctionEncoder):
         self.initialized = True
 
     def encode(self, function: str):
-        return self.one_hot_encoder.transform([[function]]).flatten()
+        return self.one_hot_encoder.transform([[function]]).toarray().flatten()
     
     def get_dimension(self):
-        return len(self.one_hot_encoder.categories_[0])
+        return self.one_hot_encoder.transform([["dummy"]]).shape[1]
     
     def get_key(self):
         key = hash_list_to_string([
@@ -96,3 +98,10 @@ class FunctionOneHotEncoder(FunctionEncoder):
             *[str(word) for cat in self.one_hot_encoder.categories_ for word in cat]
         ], 16)
         return key
+
+
+if __name__ == "__main__":
+    x = FunctionOneHotEncoder(min_frequency=1)
+    x.initialize(["a", "b", "c"])
+    print(x.get_dimension())
+    print(x.encode("d"))

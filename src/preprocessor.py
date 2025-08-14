@@ -1,83 +1,98 @@
 from __future__ import annotations
 
 import re
-try:
-    get_ipython()  # Only defined in IPython/Jupyter environments
-    from tqdm.notebook import tqdm
-except (NameError, ImportError):
-    from tqdm import tqdm
-    
-from collections import defaultdict
-from states import States as S
-import datetime
-from sklearn.preprocessing import LabelEncoder
-from sklearn.preprocessing import OrdinalEncoder
-from util import *
+from collections import defaultdict, deque
+from typing import Callable
+from datetime import datetime
 import random
 import numpy as np
-from message_encoder import *
-from function_encoder import *
 import json
 import os
 import joblib
-import zipfile
-import tempfile
 
-DATA_PATH = r"D:\mgeo\projects\log-classification\data"
-LOG_PATH = DATA_PATH + "/CCI/CCLog-backup.{n}.log"
-LOG_LEVEL_MAP = {'Trace': 0, 'Debug': 1, 'Info': 2, 'Warn': 3, 'Error': 4, 'Fatal': 5}
+from encoders.datetime_encoder import DatetimeEncoder
+from encoders.datetime_features import DatetimeFeature, DatetimeFeatureBase
+from encoders.loglevel_encoder import *
+from encoders.message_encoder import *
+from encoders.function_encoder import *
+from encoders.classes_encoder import *
+from encoders.save_encoder import save_encoder_if_new
+from classes import Classes, classes, annotate as cl_annotate
+from hash_list import hash_list_to_string, hash_ndarray
+from encoders.encoder_type import EncoderType
+from util import *
+
+
+from rich import print
+from rich.progress import (
+    Progress,
+    BarColumn,
+    TimeRemainingColumn,
+    TimeElapsedColumn,
+    SpinnerColumn,
+    TextColumn,
+    MofNCompleteColumn,
+    TaskProgressColumn,
+)
+
+
 
 class Dataset:
-    def __init__(self, entry_shape):
+    def __init__(self, entry_shape, preprocessor_key: str | None = None, loaded_logfiles: set[str] | None = None):
         self.data_list = [] # entries are (feature tensor, state) where feature tensor has the shape entr_shape
         
-        self.data_array_x = None 
-        self.data_array_y = None 
-        self.const = False
+        self.preprocessor_key = preprocessor_key
+        self.loaded_logfiles = loaded_logfiles
+        
+        self.data_array_x = None
+        self.data_array_y = None
+        
+        self._const = False
         
         self.entry_shape = entry_shape
-        self.states_counts = defaultdict(int)
+        self.class_counts = defaultdict(int)
     
     def add(self, features: np.ndarray, state):
-        if not features.shape == self.entry_shape:
-            raise Exception("Shape must be the same as all other entries.")
-        if self.const:
-            raise Exception("Can't edit constant Dataset.")
+        if not features.shape == self.entry_shape: 
+            raise Exception(f"Shape mismatch: {features.shape} must be the same as {self.entry_shape}.")
+        if self._const: raise Exception("Can't edit constant Dataset.")
 
-        self.states_counts[state] += 1
+        self.class_counts[hash_ndarray(state)] += 1
         self.data_list.append((features, state))
     
     def as_xy_arrays(self):
-        if len(self.data_list) != 0:
+        # try to define data as array if Dataset is not const
+        if not self._const and len(self.data_list) != 0:
             x, y = zip(*self.data_list)
-            x = np.array(x)
-            y = np.array(y)
-
-            if not self.const:
-                self.data_array_x, self.data_array_y = x, y
+            self.data_array_x = np.array(x)
+            self.data_array_y = np.array(y)
+        
+        # raise if no data arrays
         if self.data_array_x is None or self.data_array_y is None:
-            raise Exception("Data array is not defined.")
+            raise Exception("Data array is not and could not be defined.")
 
+        # return data arrays
         return self.data_array_x, self.data_array_y
     
-    def stratified_split(self, ratios=(4, 1), seed=42):
-        if len(self.data_list) != 0:
+    def stratified_split(self, ratios = (4, 1), seed = None):
+        # try to define data as array if Dataset is not const
+        if not self._const and len(self.data_list) != 0:
             x, y = zip(*self.data_list)
-            x = np.array(x)
-            y = np.array(y)
+            self.data_array_x = np.array(x)
+            self.data_array_y = np.array(y)
 
-            if not self.const:
-                self.data_array_x, self.data_array_y = x, y
+        # raise if no data arrays
         if self.data_array_x is None or self.data_array_y is None:
-            raise Exception("Data array is not defined.")
+            raise Exception("Data array is not and could not be defined.")
         
+        # seed the random module and np.random module
         random.seed(seed)
         np.random.seed(seed)
         class_buckets = defaultdict(list)
         
         # Group samples by class
         for x, y in zip(self.data_array_x, self.data_array_y):
-            class_buckets[y].append((x, y))
+            class_buckets[hash_ndarray(y)].append((x, y))
 
         # Normalize ratios
         total = sum(ratios)
@@ -99,7 +114,7 @@ class Dataset:
                 splits[i].extend(samples[start:start + size])
                 start += size
 
-        # Optionally shuffle the final splits
+        # Shuffle the final splits
         result = []
         for split in splits:
             random.shuffle(split)
@@ -110,80 +125,128 @@ class Dataset:
 
         return result
         
-    def save(self, file_path: str):
-        if len(self.data_list) != 0:
-            x, y = zip(*self.data_list)
-            x = np.array(x)
-            y = np.array(y)
+    def save(self, file_path: str, save_meta: bool):
+        if self._const: raise Exception("Can't save Dataset flagged as constant")
+        if not file_path.endswith(".npz"): raise ValueError("file_path must be an .npz file")
 
-            if not self.const:
-                self.data_array_x, self.data_array_y = x, y
-        if self.data_array_x is None or self.data_array_y is None:
-            raise Exception("Data array is not defined.")
+        # try to define data as array if Dataset is not const
+        if not self._const and len(self.data_list) != 0:
+            x, y = zip(*self.data_list)
+            self.data_array_x = np.array(x)
+            self.data_array_y = np.array(y)
         
-        np.savez(file_path, x=self.data_array_x, y=self.data_array_y)
+        print(self.data_list)
+
+        # raise if no data arrays
+        if self.data_array_x is None or self.data_array_y is None:
+            raise Exception("Data array is not and could not be defined.")
+        
+        # format the file path
+        dt = datetime.now().strftime('%Y%m%d_%H%M%S')
+        file_path = file_path.format(
+            preprocessor_key=self.preprocessor_key,
+            timestamp=dt,
+            num_files=len(self.loaded_logfiles))
+        # save the npz file
+        np.savez(file_path, x=self.data_array_x, y=self.data_array_y, preprocessor_key=self.preprocessor_key)
+        
+        # save metadata
+        if save_meta:
+            meta = {
+                "loaded_logfiles": list(self.loaded_logfiles),
+                "preprocessor_key": self.preprocessor_key,
+                "saved_at": dt
+            }
+            json_path = file_path.replace(".npz", ".json")
+            with open(json_path, "w") as f:
+                json.dump(meta, f, indent=4)
 
     @staticmethod
     def load(file_path: str, validate_shape: bool = True) -> Dataset:
+        if not file_path.endswith(".npz"): raise ValueError("file_path must be an .npz file")
+        
+        # load npz file
         npz = np.load(file_path)
         data_x, data_y = npz['x'], npz['y']
+        preprocessor_key = npz['preprocessor_key'].item()
         npz.close()
         
+        # set and validate shape
         shape = data_x[0].shape
-        
         if validate_shape and not all(d.shape == shape for d in data_x):
             raise Exception("feature shapes must be all the same")
         
-        ds = Dataset(shape)
+        # create dataset
+        ds = Dataset(shape, preprocessor_key)
         ds.data_array_x = data_x
         ds.data_array_y = data_y
-        ds.const = True
+        ds._const = True
 
+        # set states counts
         for state in data_y:
-            ds.states_counts[state] += 1
+            ds.class_counts[hash_ndarray(state)] += 1
 
         return ds
 
 
 class Preprocessor:
     def __init__(self, 
-                 log_numbers: list[int], 
-                 message_encoder:  MessageEncoder | None,
-                 logs_per_class: int = 100,
+                 message_encoder:  MessageEncoder,
+                 function_encoder: FunctionEncoder,
+                 datetime_encoder: DatetimeEncoder,
+                 log_level_encoder: LogLevelEncoder,
+                 classes_encoder: ClassesEncoder,
+
+                 classes: Classes,
+                 
                  window_size: int = 20,
-                 extended_datetime_features: bool = False,
+                 name: str | None = None,
+
                  volatile: bool = False):
+        
+        self.name = name or "preprocessor"
+
+        # whether to print progress and information while training
         self.volatile = volatile
 
-        self.extended_datetime_features = extended_datetime_features
-        self.logs_per_class = logs_per_class
+        self.classes = classes
+
+        # set basic hyperparameters
         self.window_size = window_size
+        # encoders
         self.message_encoder = message_encoder
+        self.function_encoder = function_encoder
+        self.datetime_encoder = datetime_encoder
+        self.loglevel_encoder = log_level_encoder
+        self.classes_encoder = classes_encoder
+
+        # initialize set of loaded files
         self.loaded_files = set()
-
-        self.data = Dataset((self.window_size, (11 if self.extended_datetime_features else 2) + 1 + 1 + self.message_encoder.get_result_shape()))
+        # load events and catch keyboard interrupts
         self.events = []
+
+        self.encoders_initialized = False
+
+    def initialize_encoders(self):
+        if len(self.events) == 0:
+            raise Exception("Events must be loaded before initializing the encoders")
+        
+        if not self.message_encoder.initialized: self.message_encoder.initialize([ev["log_message"] for ev in self.events])
+        if not self.function_encoder.initialized: self.function_encoder.initialize([ev["function"] for ev in self.events])
+        if not self.loglevel_encoder.initialized: self.loglevel_encoder.initialize([ev["log_level"] for ev in self.events])
+        if not self.classes_encoder.initialized: self.classes_encoder.initialize(self.classes.values)
+
+        self.encoders_initialized = True
+
+    def load_logfiles(self, log_files: list[str]):
+        len(log_files)
         try:
-            for i in log_numbers: self.load_logfile(LOG_PATH.format(n=i))
+            for i, f in enumerate(log_files): 
+                self.load_logfile(f, num=i+1, max_n=len(log_files))
         except KeyboardInterrupt:
             pass
-        self.message_encoder.initialize([ev["log_message"] for ev in self.events])
 
-        self.function_encoder = LabelEncoder()
-        self.function_encoder.fit([ev["function"] for ev in self.events])
-    
-    def initialize(self):
-        self.message_encoder.initialize([ev["log_message"] for ev in self.events])
-        self.function_encoder = LabelEncoder()
-        self.function_encoder.fit([ev["function"] for ev in self.events])
-
-    def load_logfiles(self, log_numbers: list[int]):
-        try:
-            for i in log_numbers: self.load_logfile(LOG_PATH.format(n=i))
-        except KeyboardInterrupt:
-            pass
-
-    def load_logfile(self, path: str):
+    def load_logfile(self, path: str, num=0, max_n=0):
         """
         Load and parse a logfile into a list of events. Each event has the following keys: "timestamp", "log_level", "function", "log_message"
 
@@ -202,157 +265,310 @@ class Preprocessor:
 
         # initialize tracker for progress
         filename = os.path.basename(path)
-        if self.volatile: progress = tqdm(total=len(lines), desc=f"parsing log file {filename}")
-
         events = []
 
-        # loop over all lines and parse them into a list of events
-        while lines:
-            # strip newlines
-            line = lines[0].strip("\n")
-
-            # if this is the start of a log entry, create a new event
+        # helper to process a single line
+        def process_line(line: str):
+            nonlocal events
+            line = line.rstrip("\n")
             parts = line.split("|")
             if len(parts) >= 4 and re.search(r"^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d{4}", parts[0]):
-                event = {
+                events.append({
                     "timestamp": parts[0].strip(),
                     "log_level": parts[1].strip(),
                     "function": parts[2].strip(),
                     "log_message": parts[3].strip()
-                }
-                events.append(event)
-
-            # otherwise add to the previous log message
+                })
             elif events:
                 events[-1]["log_message"] += "\n" + line
-            
-            # pop the first line
-            lines.pop(0)
 
-            # update progress
-            if self.volatile: progress.update(1)
-        
+
+        if self.volatile:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[bold blue]{task.description}"),
+                BarColumn(bar_width=40, complete_style="green", finished_style="green"),
+                TaskProgressColumn(),  # shows percent like '23%'
+                TimeElapsedColumn(),
+                TimeRemainingColumn(),
+            ) as progress:
+                task = progress.add_task(f"[cyan]{num}/{max_n} parsing log file {filename}...[/cyan]", total=len(lines))
+                for line in lines:
+                    process_line(line)
+                    progress.update(task, advance=1)
+        else:
+            for line in lines:
+                process_line(line)
+
+
         self.events.extend(events)
         self.loaded_files.add(path)
     
-    def preprocess(self):
+    def get_shape(self):
+        return (
+            self.window_size, 
+            
+            self.datetime_encoder.get_dimension() 
+            + self.loglevel_encoder.get_dimension() 
+            + self.function_encoder.get_dimension() 
+            + self.message_encoder.get_dimension()
+            )
+
+    def preprocess_dataset_old(self, logs_per_class: int | None = 100, force_logs_per_class: bool = True, shuffle: bool = False, step: int = 1, max_events: int | None = None) -> Dataset:
+        if len(self.events) == 0:
+            raise ValueError("events must not be empty")        
+        
+        # create copy of events and shuffle
+        _events = self.events.copy()
+        if shuffle: random.shuffle(_events)
+
+        # instanciate dataset
+        data = Dataset(
+            self.get_shape(),
+             self.get_key(),
+             self.loaded_files
+        )
+        
+        for cl in self.classes.values: data.class_counts[hash_ndarray(self.classes_encoder.encode(cl))] = 0
+
+        n = len(_events)
+        end = min(max_events, n) if max_events is not None else n
+
+
         # initialize tracker for progress
-        if self.volatile: progress = tqdm(total=len(self.events), desc="annotating events")
+        if self.volatile: 
+            total_iters = max(0, (end - self.window_size + (step - 1)) // step)
+            progress = Progress(
+                SpinnerColumn(),
+                TextColumn("[bold blue]{task.description}"),
+                BarColumn(bar_width=40, complete_style="green", finished_style="green"),
+                TaskProgressColumn(),  # shows percent like '23%'
+                MofNCompleteColumn(),  # shows progress like '23/100'
+            )
+            progress.start()
+            task = progress.add_task("[cyan]Preparing Dataset...[/cyan]", total=total_iters)
+            if logs_per_class is not None:
+                cl_tasks = {
+                    hash_ndarray(self.classes_encoder.encode(cl)): progress.add_task(f"[cyan]{cl}[/cyan]", total=logs_per_class) for cl in self.classes.values
+                }
 
         # let a sliding window go over the events list
-        for i in range(self.window_size, len(self.events)):
-            # break out of the loop once all classes have the required number
-            if all(v == self.logs_per_class for v in self.data.states_counts.values()):
-                print(f"All states have the desired log count")
-                break
-            
-            # update progress
-            if self.volatile: progress.update(1)
-            
-            # select the events by sliding window and get the last of the selected events
-            window = self.events[(i-self.window_size):i]
-            
-            vec, label = self.annotate_and_encode_window(window)
-            if self.data.states_counts[label] >= self.logs_per_class: continue
-            else: self.data.add(vec, label)
+        try:
+            for i in range(self.window_size, min(max_events, len(_events)) if max_events else len(_events), step):
+                if (logs_per_class is not None) and all(v >= logs_per_class for v in data.class_counts.values()):
+                    break
+                
+                # select the events by sliding window and get the last of the selected events
+                window = _events[(i-self.window_size):i]
+                
+                vec, label = self.encode_window(window), self.annotate_window(window)
+
+                # update progress
+                if self.volatile: 
+                    # progress.update(1)
+                    progress.update(task, advance=1)
+
+                if (logs_per_class is not None) and data.class_counts[hash_ndarray(label)] >= logs_per_class: 
+                    continue
+                else: 
+                    data.add(vec, label)
+                    if self.volatile and logs_per_class is not None:
+                            progress.update(cl_tasks[hash_ndarray(label)], advance=1)
+        except KeyboardInterrupt:
+            print("[yellow]Preprocessing dataset interrupted...[/yellow]")
 
         # log
         if self.volatile:
             print(f"State counts:")
-            for k, v in self.data.states_counts.items(): print(f"  - {k} : {v}")
+            for k, v in data.class_counts.items(): print(f"  - {k} : {v}")
 
-    def annotate_and_encode_window(self, window):
-        def event_to_vector(seq):
-            sequence_features = []
+            progress.stop()
 
-            for ev in seq:
-                dt = datetime.datetime.fromisoformat(ev["timestamp"])
-                dt = extract_date_time_features(dt)
-                log_level = LOG_LEVEL_MAP.get(ev['log_level'], 0)
-                function_id = self.function_encoder.transform([ev['function']])[0]
-                log_msg_token = self.message_encoder.encode(ev['log_message'])
-                # log_msg_token_id = log_msg_token[0] if log_msg_token else 0
+        # Downsample classes
+        if force_logs_per_class and logs_per_class is not None:
+            print("[yellow]Forcing logs per class by downsampling...[/yellow]")
 
-                feature_vector = [val for val in dt.values()] + [log_level, function_id, log_msg_token]
-                flat_feature = np.concatenate([to_flat_array(f) for f in feature_vector])
-                sequence_features.append(flat_feature)
-
-            return np.array(sequence_features)
-        
-        def extract_date_time_features(dt: datetime.datetime, normalize: bool = False):
-            if not self.extended_datetime_features:
-                # date as days since epoch
-                date_feature = (dt.date() - datetime.datetime(1970, 1, 1).date()).days
-                # Time in seconds since midnight
-                time_feature = dt.hour * 3600 + dt.minute * 60 + dt.second
-
-                return {"days_since_epoch": date_feature, "seconds_since_midnight": time_feature}
-
-            features = {}
-
-            # Date-based features
-            epoch = datetime.datetime(1970, 1, 1)
-            days_since_epoch = (dt.date() - epoch.date()).days
-            features['days_since_epoch'] = days_since_epoch
-
-            features['year'] = dt.year
-            features['month'] = dt.month        # 1–12
-            features['day'] = dt.day            # 1–31
-            features['weekday'] = dt.weekday()  # 0 = Monday, 6 = Sunday
-            features['is_weekend'] = int(dt.weekday() >= 5)
-
-            # Time-based features
-            hour = dt.hour + dt.minute / 60 + dt.second / 3600
-            features['hour'] = dt.hour
-            features['minute'] = dt.minute
-            features['second'] = dt.second
-
-            # Cyclical time features
-            features['sin_hour'] = np.sin(2 * np.pi * hour / 24)
-            features['cos_hour'] = np.cos(2 * np.pi * hour / 24)
-
-            # Normalize numeric features (rough scaling — adjust as needed)
-            max_values = {
-                'days_since_epoch': 20000,  # ~55 years from 1970 to 2025
-                'year': 2100,
-                'month': 12,
-                'day': 31,
-                'weekday': 6,
-                'hour': 23,
-                'minute': 59,
-                'second': 59
-            }
-
-            for key in list(features):
-                if key in max_values:
-                    features[key] = features[key] / max_values[key]
-
-            return features
-
-        last_event = window[-1]
-
-        ############################
-        # Annotation rules
-        ############################
-        # Rule for UnobservedException
-        if last_event["function"] == "C_line_Control_Server.CCServerAppContext.TaskSchedulerUnobservedTaskException":
-            return event_to_vector(window), S.UnobservedException
-        
-        elif last_event["log_level"] == "Error":
-            # Rule for DatabaseError
-            if "DBProxyMySQL" in last_event["function"] or "DBManager" in last_event["function"]:
-                return event_to_vector(window), S.DatabaseError
-                
-            # Rule for HliSessionError
-            elif "SessionFactory.OpenSession" in last_event["function"]:
-                return event_to_vector(window), S.HliSessionError
+            class_counts = data.class_counts
+            n = min(class_counts.values())
             
-            else:
-                return event_to_vector(window), S.Normal
+            data.data_list
+            seen = defaultdict(int)
+            out = []
+            for t in data.data_list:
+                label = hash_ndarray(t[1])
+                if seen[label] < n:
+                    out.append(t)
+                    seen[label] += 1
+            
+            data.data_list = out
+
+        if (logs_per_class is not None) and all(v == logs_per_class for v in data.class_counts.values()):
+            print(f"All states have the desired log count")
+
+        return data
+    
+    def preprocess_dataset(self, logs_per_class: int | None = 100, force_logs_per_class: bool = True, shuffle: bool = False, step: int = 1, max_events: int | None = None) -> Dataset:
+        if len(self.events) == 0:
+            raise ValueError("events must not be empty")        
+        
+        # create copy of events and shuffle
+        _events = self.events.copy()
+        if shuffle: random.shuffle(_events)
+
+        # instanciate dataset
+        data = Dataset(
+            (self.window_size, 
+             self.datetime_encoder.get_dimension() 
+             + self.loglevel_encoder.get_dimension() 
+             + self.function_encoder.get_dimension() 
+             + self.message_encoder.get_dimension()),
+             self.get_key(),
+             self.loaded_files
+        )
+        
+        for cl in self.classes.values: data.class_counts[hash_ndarray(self.classes_encoder.encode(cl))] = 0
+
+        window_size = self.window_size
+        num_events = len(_events)
+        end = min(max_events, num_events) if max_events is not None else num_events
+
+        # return if not enough events
+        if end <= window_size: return  # nothing to do
+
+        # initialize tracker for progress
+        if self.volatile: 
+            total_iters = max(0, (end - window_size + (step - 1)) // step)
+            progress = Progress(
+                SpinnerColumn(),
+                TextColumn("[bold blue]{task.description}"),
+                BarColumn(bar_width=40, complete_style="green", finished_style="green"),
+                TaskProgressColumn(),  # shows percent like '23%'
+                MofNCompleteColumn(),  # shows progress like '23/100'
+            )
+            progress.start()
+            task = progress.add_task("[cyan]Preparing Dataset...[/cyan]", total=total_iters)
+            if logs_per_class is not None:
+                cl_tasks = {
+                    hash_ndarray(self.classes_encoder.encode(cl)): progress.add_task(f"[cyan]{cl}[/cyan]", total=logs_per_class) for cl in self.classes.values
+                }
+
+        # speed up attribute / global lookups inside the loop
+        encode_window = self.encode_window
+        annotate_window = self.annotate_window
+        add = data.add
+        class_counts = data.class_counts
+        hash_label = hash_ndarray
+
+        # track which classes have already hit their cap so we don't scan the whole dict every time
+        done_classes = set()
+
+        # rolling window: prefill the first w items once
+        win = deque(_events[:window_size], maxlen=window_size)
+
+        try:
+            # iterate i at window end positions
+            for i in range(window_size, end, step):
+                # early-stop if every known class is done
+                if logs_per_class is not None and len(done_classes) == len(class_counts):
+                    break
+
+                ###############################################
+
+                # slide the window if it not the first iteration
+                if i > window_size:
+                    win.extend(_events[i - step:i])
+
+                # compute vec/label from the current window
+                vec = encode_window(win)
+                label = annotate_window(win)
+
+                # update progress
+                if self.volatile and progress is not None and task is not None: progress.update(task, advance=1)
+
+                # if there is no maximum logs per class, add the log and continue
+                if logs_per_class is None:
+                    add(vec, label)
+                    continue
+
+
+                # per-class capping with single hash and no double work
+                hashed_label = hash_label(label)
+                previous_cnt = class_counts[hashed_label]
+                # continue if class already reached its log limit
+                if previous_cnt >= logs_per_class: continue
                 
-        # Rule for Normal data
-        else:
-            return event_to_vector(window), S.Normal
+                # add the window
+                add(vec, label)
+
+                # update the done classes set
+                new_cnt = previous_cnt + 1
+                if new_cnt >= logs_per_class:
+                    done_classes.add(hashed_label)
+
+                # update progresses
+                if self.volatile and cl_tasks is not None and hashed_label in cl_tasks:
+                    # advance one (or mark complete) for this class
+                    if new_cnt >= logs_per_class:
+                        progress.update(cl_tasks[hashed_label], completed=logs_per_class)
+                    else:
+                        progress.update(cl_tasks[hashed_label], advance=1)
+        except KeyboardInterrupt:
+            print("[yellow]Preprocessing dataset interrupted...[/yellow]")
+
+        # print info to console and stop progress
+        if self.volatile:
+            print(f"State counts:")
+            for k, v in data.class_counts.items(): print(f"  - {k} : {v}")
+
+            progress.stop()
+
+        # Downsample classes
+        if force_logs_per_class and logs_per_class is not None:
+            print("[yellow]Forcing logs per class by downsampling...[/yellow]")
+
+            class_counts = data.class_counts
+            num_events = min(class_counts.values())
+            
+            data.data_list
+            seen = defaultdict(int)
+            out = []
+            for t in data.data_list:
+                label = hash_ndarray(t[1])
+                if seen[label] < num_events:
+                    out.append(t)
+                    seen[label] += 1
+            
+            data.data_list = out
+
+        if (logs_per_class is not None) and all(v == logs_per_class for v in data.class_counts.values()):
+            print(f"All states have the desired log count")
+
+        return data
+    
+
+
+    def annotate_window(self, window):
+        label = self.classes.annotate(window)
+        return self.classes_encoder.encode(label)
+
+    def encode_window(self, window):
+        sequence_features = []
+
+        for ev in window:
+            dt = datetime.fromisoformat(ev["timestamp"])
+            dt_feature = self.datetime_encoder.extract_date_time_features(dt)
+
+            log_level_feature = self.loglevel_encoder.encode(ev['log_level'])
+
+            function_feature = self.function_encoder.encode(ev['function'])
+
+            log_msg_feature = self.message_encoder.encode(ev['log_message'])
+
+            feature_vector = [val for val in dt_feature.values()] + [log_level_feature, function_feature, log_msg_feature]
+            flat_feature = np.concatenate([to_flat_array(f) for f in feature_vector])
+            sequence_features.append(flat_feature)
+
+        return np.array(sequence_features)
 
     def preprocess_log_line(self, log_file, line_n):
         timestamp_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d{4}")
@@ -398,141 +614,137 @@ class Preprocessor:
         if len(events) != self.window_size:
             return None, None, None
 
-        vec, label = self.annotate_and_encode_window(events)
+        vec, label = self.encode_window(events), self.annotate_window(events)
         return vec, label, events, last_line
         
-    def save(self, path: str | None = None):
-        if path is None:
-            path = DATA_PATH + f"/preprocessors/preprocessor_{len(self.loaded_files)}files_"
-            m = "BERTenc" if isinstance(self.message_encoder, BERTEncoder) else \
-                "BERTemb" if isinstance(self.message_encoder, BERTEmbeddingEncoder) else \
-                "TextVec" if isinstance(self.message_encoder, TextVectorizationEncoder) else "enc"
-            path += f"{self.logs_per_class}lpc_{self.window_size}ws_{m}x{self.message_encoder.get_result_shape() if self.message_encoder is not None else ''}"
-            if self.extended_datetime_features:
-                path += "_extdt"
-            path += ".zip"
+    def get_key(self):
+        key = hash_list_to_string([
+            self.message_encoder.get_key(),
+            self.function_encoder.get_key(),
+            self.loglevel_encoder.get_key(),
+            self.datetime_encoder.get_key(),
 
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+            str(self.window_size)
+            ], 16)
+        
+        return key
 
-        # Use a temporary directory to store intermediate files
-        with tempfile.TemporaryDirectory() as temp_dir:
-            message_encoder_path = os.path.join(temp_dir, "message_encoder.pkl")
-            function_encoder_path = os.path.join(temp_dir, "function_encoder.pkl")
-            data_path = os.path.join(temp_dir, "data.npz")
-            json_path = os.path.join(temp_dir, "metadata.json")
+    def save(self, path: str):
+        # get values for name formatting
+        key = self.get_key()
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-            # Save encoders
-            if hasattr(self, "message_encoder"):
-                joblib.dump(self.message_encoder, message_encoder_path)
+        # format preprocessor name and create directories
+        preprocessor_path = path + f"/[{key}][{timestamp}]{self.name}.json"
+        os.makedirs(os.path.dirname(preprocessor_path), exist_ok=True)
 
-            if hasattr(self, "function_encoder"):
-                joblib.dump(self.function_encoder, function_encoder_path)
-
-            if self.data is not None:
-                self.data.save(data_path)
-
-            # Build the JSON metadata
-            obj = {
-                "extended_datetime_features": self.extended_datetime_features,
-                "logs_per_class": self.logs_per_class,
-                "window_size": self.window_size,
-                "message_encoder_path": "message_encoder.pkl",
-                "function_encoder_path": "function_encoder.pkl",
-                "data_path": "data.npz",
-                "loaded_files": list(self.loaded_files),
-                "events": self.events,
+        paths = [preprocessor_path]
+        # save the encoders and save their paths and keys in obj
+        obj = {
+            "window_size": self.window_size,
+            "name": self.name,
+            "classes": self.classes.values
             }
+        for encoder in [self.message_encoder, 
+                        self.function_encoder, 
+                        self.datetime_encoder, 
+                        self.loglevel_encoder, 
+                        self.classes_encoder]:
+            encoder_t, k, filename = save_encoder_if_new(encoder, path, timestamp)
+            obj[f"{encoder_t}_k"] = k
+            obj[f"{encoder_t}_f"] = filename
+            # print(filename, type(filename))
+            paths.append(filename)
 
-            with open(json_path, 'w') as f:
-                json.dump(obj, f, indent=4)
+        # save the preprocessor json
+        with open(preprocessor_path, 'w') as f:
+            json.dump(obj, f, indent=4)
 
-            # Zip everything
-            with zipfile.ZipFile(path, 'w') as zf:
-                zf.write(json_path, "metadata.json")
-                if os.path.exists(message_encoder_path):
-                    zf.write(message_encoder_path, "message_encoder.pkl")
-                if os.path.exists(function_encoder_path):
-                    zf.write(function_encoder_path, "function_encoder.pkl")
-                if os.path.exists(data_path):
-                    zf.write(data_path, "data.npz")
-
-        return path
+        return paths
 
     @staticmethod
-    def load(path: str, volatile: bool = True):
-        if not zipfile.is_zipfile(path):
-            raise ValueError(f"The provided path is not a zip file: {path}")
+    def load(preprocessor_path: str, 
+             custom_encoder_directory: str | None = None,
+             custom_encoder_paths: dict[str, str] | None = None,
+             annotate: Callable[[list[dict[str,str]]], Any] | None = None,
+             volatile: bool = True):
+        with open(preprocessor_path, 'r') as f:
+            json_obj = json.load(f)
+        
+        name = json_obj["name"]
+        window_size = json_obj["window_size"]
+        obj_classes = json_obj["classes"]
+        encoders = {}
 
-        with zipfile.ZipFile(path, 'r') as zip_file:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                zip_file.extractall(temp_dir)
+        for encoder_t in EncoderType.types():
+            path = None
+            if custom_encoder_paths is not None and encoder_t in custom_encoder_paths:
+                path = custom_encoder_paths[encoder_t]
+            elif custom_encoder_directory is not None:
+                path = os.path.join(custom_encoder_directory, json_obj[f"{encoder_t}_f"])
+            else:
+                path = os.path.join(os.path.dirname(preprocessor_path), json_obj[f"{encoder_t}_f"])
 
-                # Load JSON metadata
-                metadata_path = os.path.join(temp_dir, "metadata.json")
-                with open(metadata_path, 'r') as f:
-                    json_obj = json.load(f)
+            encoders[encoder_t] = joblib.load(path)
 
-                obj = object.__new__(Preprocessor)
-                obj.volatile = volatile
+        obj = Preprocessor(
+            message_encoder=encoders[EncoderType.message],
+            datetime_encoder=encoders[EncoderType.datetime],
+            log_level_encoder=encoders[EncoderType.loglevel],
+            function_encoder=encoders[EncoderType.function],
+            classes_encoder=encoders[EncoderType.classes],
+            classes=Classes(obj_classes, annotate=annotate),
+            window_size=window_size,
+            name=name,
+            volatile=volatile
+        )
 
-                # Load encoders
-                message_encoder_file = os.path.join(temp_dir, json_obj.get("message_encoder_path", "message_encoder.pkl"))
-                if os.path.exists(message_encoder_file):
-                    obj.message_encoder = joblib.load(message_encoder_file)
-
-                function_encoder_file = os.path.join(temp_dir, json_obj.get("function_encoder_path", "function_encoder.pkl"))
-                if os.path.exists(function_encoder_file):
-                    obj.function_encoder = joblib.load(function_encoder_file)
-
-                # Load data
-                data_file = os.path.join(temp_dir, json_obj.get("data_path", "data.npz"))
-                if os.path.exists(data_file):
-                    obj.data = Dataset.load(data_file)
-                else:
-                    raise Exception("No data found")
-
-                # Restore attributes
-                obj.extended_datetime_features = json_obj.get("extended_datetime_features", False)
-                obj.logs_per_class = json_obj.get("logs_per_class", 0)
-                obj.window_size = json_obj.get("window_size", 1)
-                obj.events = [dict(ev) for ev in json_obj.get("events", [])]
-                obj.loaded_files = set(json_obj.get("loaded_files", []))
-
-                obj.initialize()
-
-                return obj
+        return obj
 
 
 if __name__ == "__main__":
-    if False:
-        pp = Preprocessor.load(f"{DATA_PATH}/preprocessors/preprocessor_2files_11lpc_5ws_BERTencx8.zip")
-        # pp.preprocess()
-
-
-        train, test = pp.data.stratified_split((4, 1))
-        X_train, y_train = train
-        X_test, y_test = test
-
-        print(X_train)
-        
-        quit()
-
-
     # preprocessing
-    log_files = [i for i in range(745, 747)]            # list of ints representing the numbers of log files to use
-    logs_per_class = 11                                 # How many datapoints per class should be collected if available
-    window_size = 5                                     # how many log messages to be considered in a single data point from sliding window
-    encoding_output_size = 8                            # size to be passed to the message_encoder, note that this is not neccessairily the shape of the output
-    message_encoder = BERTEncoder(encoding_output_size) # the message_encoder to be used. Can be TextVectorizationEncoder (uses keras.layers.TextVectorizer), BERTEncoder (only uses the BERT tokenizer) or BERTEmbeddingEncoder (also uses the BERT model)
-    test_ratio = 0.2                                    # percantage of the collected data that should be used for testing rather than training
-    extended_datetime_features = False                  # bool, whether the preprocessing should use a multitude of normalized features extracted from the date 
+    load = True
+    if load:
+        pp = Preprocessor.load("[Hv_-zDu9v7jr4Sam][20250811_105705]preprocessor_test.json", annotate=cl_annotate)
+    else:
+        pp = Preprocessor(
+            message_encoder=MessageTextVectorizationEncoder(max_tokens=1000, output_mode="count"),
+            function_encoder=FunctionOneHotEncoder(min_frequency=3),
+            datetime_encoder=DatetimeEncoder([
+                DatetimeFeature.second.since_midnight,
+                DatetimeFeature.day.since_epoch
+            ]),
+            log_level_encoder=LogLevelOneHotEncoder(),
+            classes_encoder=ClassesLabelBinarizer(),
+            classes=classes,
+            window_size=20,
+            name="preprocessor_test",
+            volatile=True
+        )
 
-    pp = Preprocessor(log_files, message_encoder, logs_per_class, window_size, extended_datetime_features, True)
-    pp.preprocess()
+    pp.load_logfiles([
+        rf"D:\mgeo\projects\log-classification\data\CCI\CCLog-backup.{i}.log"
+        for i in [749]
+    ])
 
-    train, test = pp.data.stratified_split((4, 1))
+    pp.initialize_encoders()
+
+    if not load: pp.save(".")
+
+
+    ds_load = True
+    if ds_load:
+        dataset = Dataset.load("dataset.npz", validate_shape=True)
+    else:
+        try:
+            dataset = pp.preprocess_dataset(logs_per_class=100, shuffle=True, step=100)
+        except KeyboardInterrupt:
+            pass
+
+        dataset.save("dataset.npz", True)
+
+    train, test = dataset.stratified_split((4, 1))
     X_train, y_train = train
     X_test, y_test = test
-
-    print(X_train)
 

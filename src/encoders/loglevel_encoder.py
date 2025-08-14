@@ -26,17 +26,17 @@ class LogLevelEncoder(ABC):
 class LogLevelOneHotEncoder(LogLevelEncoder):
     def __init__(self):
         super().__init__()
-        self.one_hot_encoder = OneHotEncoder(sparse_output=True)
+        self.one_hot_encoder = OneHotEncoder(sparse_output=True, handle_unknown="infrequent_if_exist")
     
     def initialize(self, all_levels: list[str]):
         self.one_hot_encoder.fit([[ll] for ll in all_levels])
         self.initialized = True
 
     def encode(self, log_level: str):
-        return self.one_hot_encoder.transform([[log_level]]).flatten()
+        return self.one_hot_encoder.transform([[log_level]]).toarray().flatten()
     
     def get_dimension(self):
-        return len(self.one_hot_encoder.categories_[0])
+        return self.one_hot_encoder.transform([["dummy"]]).shape[1]
     
     def get_key(self):
         key = hash_list_to_string([
@@ -45,23 +45,31 @@ class LogLevelOneHotEncoder(LogLevelEncoder):
         ], 16)
         return key
 
-class LogLevelLabelEncoder(LogLevelEncoder):
+class LogLevelOrdinalEncoder(LogLevelEncoder):
     def __init__(self):
         super().__init__()
-        self.label_encoder = LabelEncoder()
+        self.ordinal_encoder = OrdinalEncoder()
     
-    def initialize(self, all_levels):
-        self.label_encoder.fit(all_levels)
+    def initialize(self, all_levels: list[str]):
+        self.ordinal_encoder.fit([[l] for l in all_levels])
+        self.initialized = True
     
     def encode(self, log_level):
-        return self.label_encoder.transform([log_level])[0]
+        return self.ordinal_encoder.transform([[log_level]])[0]
     
     def get_dimension(self):
         return 1
     
     def get_key(self):
         key = hash_list_to_string([
-            "LogLevelLabelEncoder",
-            *[str(word) for word in self.label_encoder.classes_]
+            "LogLevelOrdinalEncoderEncoder",
+            *[str(word) for word in self.ordinal_encoder.categories_]
         ], 16)
         return key
+
+
+if __name__ == "__main__":
+    x = LogLevelOrdinalEncoder()
+    x.initialize(["a", "b", "c"])
+    print(x.get_dimension())
+    print(x.encode("c"))

@@ -48,7 +48,7 @@ class MessageEncoder(ABC):
     def get_key(self):
         raise NotImplementedError()
 
-class TextVectorizationEncoder(MessageEncoder):
+class MessageTextVectorizationEncoder(MessageEncoder):
     def __init__(self, 
                  max_tokens: int = 10_000,
                  standardize: str | Standardization = "lower_and_strip_punctuation",
@@ -68,7 +68,7 @@ class TextVectorizationEncoder(MessageEncoder):
             standardize=standardize,
             split=split,
             output_mode=output_mode,
-            output_sequence_length=output_sequence_length
+            output_sequence_length=output_sequence_length if output_mode == "int" else None
         )
     
     def initialize(self, all_messages):
@@ -96,7 +96,7 @@ class TextVectorizationEncoder(MessageEncoder):
         ], 16)
         return key
 
-class BERTEncoder(MessageEncoder):
+class MessageBERTEncoder(MessageEncoder):
     def __init__(self, 
                  max_length=16):
         super().__init__()
@@ -128,7 +128,7 @@ class BERTEncoder(MessageEncoder):
         ], 16)
         return key
 
-class BERTEmbeddingEncoder(MessageEncoder):
+class MessageBERTEmbeddingEncoder(MessageEncoder):
     def __init__(self, max_length = 16, output_mode: str = "all"):
         super().__init__()
         # set members

@@ -1,0 +1,20 @@
+{
+    "window_size": 20,
+    "name": "preprocessor_test",
+    "classes": [
+        "Normal",
+        "UnobservedException",
+        "DatabaseError",
+        "HliSessionError"
+    ],
+    "message_k": "mwRgDwkfMTJlVIuy",
+    "message_f": "encoders\\message\\[2qk_qymiSjKvtNNE][20250812_145346].pkl",
+    "function_k": "imCUq62zIuRtrriJ",
+    "function_f": "encoders\\function\\[EhJ6PnkJ5m_1VSWV][20250811_105337].pkl",
+    "datetime_k": "mWSiX7Q9vwV3ay_T",
+    "datetime_f": "encoders\\datetime\\[mWSiX7Q9vwV3ay_T][20250811_105337].pkl",
+    "loglevel_k": "5X3Ov-CZCjelZViH",
+    "loglevel_f": "encoders\\loglevel\\[l-H0TjBWYq2S3vnD][20250811_105337].pkl",
+    "classes_k": "gh3XxkL3B3jq6ISf",
+    "classes_f": "encoders\\classes\\[gh3XxkL3B3jq6ISf][20250811_105337].pkl"
+}

@@ -4,6 +4,7 @@ from encoders.datetime_encoder import DatetimeEncoder
 from encoders.loglevel_encoder import LogLevelEncoder
 from encoders.function_encoder import FunctionEncoder
 from encoders.message_encoder import MessageEncoder
+from encoders.encoder_type import EncoderType
 
 def save_encoder_if_new(encoder: DatetimeEncoder | LogLevelEncoder | FunctionEncoder | MessageEncoder,
                         base_path: str, 
@@ -15,17 +16,7 @@ def save_encoder_if_new(encoder: DatetimeEncoder | LogLevelEncoder | FunctionEnc
     
     Returns the Path to the existing or newly created file.
     """
-    encoder_name = "None"
-    if isinstance(encoder, DatetimeEncoder):
-        encoder_name = "datetime"
-    elif isinstance(encoder, LogLevelEncoder):
-        encoder_name = "loglevel"
-    elif isinstance(encoder, FunctionEncoder):
-        encoder_name = "function"
-    elif isinstance(encoder, MessageEncoder):
-        encoder_name = "message"
-    else:
-        raise ValueError(f"Unknown encoder type: {type(encoder)}")
+    encoder_name = EncoderType.to_str(encoder)
 
     key = encoder.get_key()
     base = Path(base_path)
@@ -38,7 +29,7 @@ def save_encoder_if_new(encoder: DatetimeEncoder | LogLevelEncoder | FunctionEnc
     if matches:
         # already saved
         if verbose: print(f"✔️  `{encoder_name}` encoder with key={key!r} already exists at {matches[0]}")
-        return encoder_name, key, matches[0].relative_to(base)
+        return encoder_name, key, str(matches[0].relative_to(base))
     else:
         # build new filename and dump
         filename = f"[{key}][{timestamp}].pkl"
@@ -46,4 +37,4 @@ def save_encoder_if_new(encoder: DatetimeEncoder | LogLevelEncoder | FunctionEnc
         with open(path, "wb") as f:
             pickle.dump(encoder, f)
         if verbose: print(f"💾 Saved `{encoder_name}` encoder with key={key!r} to {path}")
-        return encoder_name, key, path.relative_to(base)
+        return encoder_name, key, str(path.relative_to(base))
