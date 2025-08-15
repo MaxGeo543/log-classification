@@ -74,8 +74,8 @@ class ClassesLabelBinarizer(ClassesEncoder):
         return key
 
 if __name__ == "__main__":
-    x = ClassesLabelEncoder()
-    x.initialize(["Z", "A"])
+    x = ClassesLabelBinarizer()
+    x.initialize(["A", "Z"])
     print(x.get_dimension())
-    print(x.encode("X"))
+    print(x.encode("A"))
     print(x.initialized)

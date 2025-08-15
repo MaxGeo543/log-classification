@@ -12,8 +12,8 @@ from util import *
 import os
 from rich import print
 
-log_numbers = get_sorted_log_numbers_by_size("./data/CCI")
-log_numbers = [772, 771, 770]
+log_numbers = get_sorted_log_numbers_by_size("./data/CCI")[:20]
+# log_numbers = [772, 771, 770]
 
 load_preprocessor = False
 pp_path = "./preprocessors/[Hv_-zDu9v7jr4Sam][20250811_105705]preprocessor_test.json"
@@ -32,10 +32,10 @@ pp_message_encoder = MessageTextVectorizationEncoder(max_tokens=1000, output_mod
 num_logfiles = 1000  # Number of log files to use for preprocessing
 
 load_dataset = False
-dataset_path = "./datasets/dataset.npz" if load_preprocessor else "./datasets/[{timestamp}]dataset.npz"
+dataset_path = "./data/datasets/dataset.npz" if load_preprocessor else "./data/datasets/[{timestamp}]dataset.npz"
 ds_logs_per_class = 100
 ds_shuffle = True
-ds_max_events = 10_000
+ds_max_events = None
 
 print()
 

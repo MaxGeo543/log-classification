@@ -1,4 +1,5 @@
-x = list([1, 2, 3, 4, 5])
+import json
 
-for i in enumerate(x, 1):
-    print(i)
+with open("./data/old_preprocessors/metadata.json", "r") as f:
+    events = json.load(f)["events"]
+    print(len(events))

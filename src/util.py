@@ -39,3 +39,46 @@ def get_sorted_log_numbers_by_size(directory):
     # Return only the numbers n
     return [n for n, _ in log_files]
 
+
+    """
+    Decide whether labels are sparse (class ids) or one-hot.
+    Returns: dict(mode, num_classes, loss, metric), and possibly
+    transformed y (squeezed for sparse).
+    """
+    y = np.asarray(y)
+
+    # Column vector of class ids -> squeeze to (N,)
+    if y.ndim == 2 and y.shape[1] == 1:
+        y = y.reshape(-1)
+
+    # One-hot: 2D, >1 columns, values in {0,1}, rows sum to 1
+    if y.ndim == 2 and y.shape[1] > 1:
+        is_binary = np.isin(y, (0, 1)).all()
+        row_sums_one = np.allclose(y.sum(axis=1), 1.0)
+        if is_binary and row_sums_one:
+            return {
+                "mode": "one_hot",
+                "num_classes": y.shape[1],
+                "loss": "categorical_crossentropy",
+                "metric": "accuracy",
+                "y": y,
+            }
+
+    # Sparse: class ids (ints) in 1D
+    if y.ndim == 1:
+        # (allow float labels that are whole numbers, but cast to int)
+        if not np.allclose(y, np.round(y)):
+            raise ValueError("Labels look dense/continuous; expected class ids or one-hot.")
+        y = y.astype("int32")
+        return {
+            "mode": "sparse",
+            "num_classes": int(np.max(y)) + 1,
+            "loss": "sparse_categorical_crossentropy",
+            "metric": "sparse_categorical_accuracy",
+            "y": y,
+        }
+
+    raise ValueError(
+        f"Could not infer label format from shape {y.shape}. "
+        "Expected (N, C) one-hot or (N,) / (N,1) class ids."
+    )
