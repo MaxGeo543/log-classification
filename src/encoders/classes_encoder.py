@@ -1,6 +1,6 @@
 from sklearn.preprocessing import LabelEncoder, LabelBinarizer
 from abc import ABC, abstractmethod
-from hash_list import hash_list_to_string
+from util import hash_list_to_string
 import numpy as np
 
 class ClassesEncoder(ABC):
@@ -9,21 +9,37 @@ class ClassesEncoder(ABC):
     
     @abstractmethod
     def initialize(self, all_labels):
+        """
+        Initialize the ClassesEncoder with all class labels
+        """
         raise NotImplementedError()
 
     @abstractmethod
     def encode(self, label: str):
+        """
+        Encode a single class label
+        """
         raise NotImplementedError()
     
     @abstractmethod
     def get_dimension(self):
+        """
+        Get the output dimension of class encodings
+        """
         raise NotImplementedError()
     
     @abstractmethod
     def get_key(self):
+        """
+        Get a key unique to the Encoder
+        """
         raise NotImplementedError()
 
 class ClassesLabelEncoder(ClassesEncoder):
+    """
+    Encode classes with value between 0 and n_classes-1.
+    This uses the sklearn.preprocessing.LabelEncoder, explicitely stating to be used with Output, not input
+    """
     def __init__(self):
         super().__init__()
         self.label_encoder = LabelEncoder()
@@ -46,6 +62,10 @@ class ClassesLabelEncoder(ClassesEncoder):
         return key
 
 class ClassesLabelBinarizer(ClassesEncoder):
+    """
+    Encode Classes into a One-Hot Encoded Vector
+    Uses sklearn.preprocessing.LabelBinarizer
+    """
     def __init__(self):
         super().__init__()
         self.one_hot_encoder = LabelBinarizer(sparse_output=True)

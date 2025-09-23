@@ -56,7 +56,7 @@ else:
         classes=pp_classes,
         window_size=pp_window_size,
         name=pp_name,
-        volatile=True
+        verbose=True
     )
 
     log_file_paths = [
@@ -72,12 +72,7 @@ else:
     pp.initialize_encoders()
     print("[green]Encoders initialized successfully.[/green]")
 
-    #print(pp_log_level_encoder.get_dimension())
-    #print(pp_datetime_encoder.get_dimension())
-    #print(pp_function_encoder.get_dimension())
-    #print(pp_message_encoder.get_dimension())
-
-    # --- Encoder dimension validation ---
+    # Encoder dimension validation
     print("[yellow]Validating encoder output dimensions...[/yellow]")
 
     # LogLevel Encoder

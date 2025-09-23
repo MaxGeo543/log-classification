@@ -4,10 +4,13 @@ from keras.layers import TextVectorization
 from transformers import BertTokenizer
 from transformers import BertModel
 from typing import Any
-from hash_list import hash_list_to_string
+from util import hash_list_to_string
 
 # Standardization strategy Base
 class Standardization(ABC):
+    """
+    A standardization method for messages, must be callable and convertable to string
+    """
     @abstractmethod
     def __call__(self, *args, **kwds):
         raise NotImplementedError()
@@ -18,6 +21,9 @@ class Standardization(ABC):
 
 # Split strategy Base
 class Split(ABC):
+    """
+    A split methodstrategy for messages, must be callable and convertable to string
+    """
     @abstractmethod
     def __call__(self, *args, **kwds):
         raise NotImplementedError()
@@ -34,27 +40,51 @@ class MessageEncoder(ABC):
     
     @abstractmethod
     def initialize(self, all_messages):
+        """
+        Initialize the MessageEncoder with all messages
+        """
         raise NotImplementedError()
 
     @abstractmethod
     def encode(self, message: str):
+        """
+        Encode a single message
+        """
         raise NotImplementedError()
     
     @abstractmethod
     def get_dimension(self):
+        """
+        Get the output dimension of message encodings
+        """
         raise NotImplementedError()
     
     @abstractmethod
     def get_key(self):
+        """
+        Get a key unique to the Encoder
+        """
         raise NotImplementedError()
 
 class MessageTextVectorizationEncoder(MessageEncoder):
+    """
+    Encode messages using TextVectorization, maps text features to integer sequences.
+
+    uses keras.Layers.TextVectorization
+    """
     def __init__(self, 
                  max_tokens: int = 10_000,
                  standardize: str | Standardization = "lower_and_strip_punctuation",
                  split: str | Split = "whitespace",
                  output_mode: str = "int",
                  output_sequence_length: int = 16):
+        """
+        :params max_tokens: Maximum size of the vocabulary
+        :params standardize: can be "lower_and_strip_punctuation", "lower", "strip_punctuation" or any callable, inputs will be passed to the callable and should be standardized and returned
+        :params split: can be "whitespace", "character" or any callable, the standardized input will be passed to the callable which should split and return it
+        :params output_mode: can be "int", "multi_hot", "count" or "tf_idf", for more information look at the documentation of keras.Layers.TextVectorization
+        :params output_sequence_length: is only used if output mode is int, sets the dimension of the output encodings
+        """
         super().__init__()
         # set members of class
         self.max_tokens = max_tokens
@@ -97,11 +127,17 @@ class MessageTextVectorizationEncoder(MessageEncoder):
         return key
 
 class MessageBERTEncoder(MessageEncoder):
+    """
+    Uses a pretrained vocabulary to tokenize the input messages as it is done for BERT
+    
+    uses transformers.BertTokenizer
+    """
     def __init__(self, 
                  max_length=16):
         super().__init__()
         self.max_length = max_length
         self._tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.initialized = True
     
     def initialize(self, all_messages):
         pass
@@ -129,7 +165,16 @@ class MessageBERTEncoder(MessageEncoder):
         return key
 
 class MessageBERTEmbeddingEncoder(MessageEncoder):
+    """
+    uses the pretrained BERT model to encode text features
+
+    uses transformers.BertModel
+    """
     def __init__(self, max_length = 16, output_mode: str = "all"):
+        """
+        :params max_length: only used  if output_mode is "all", 
+        :params output_mode: "all" or "cls", if it is "cls" only the cls encoding will be returned which has dimension hidden_dim (768), otherwise all encodings will be returned with dimension (max_length * hidden_dim)
+        """
         super().__init__()
         # set members
         self.max_length = max_length

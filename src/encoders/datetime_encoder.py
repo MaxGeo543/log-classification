@@ -1,10 +1,13 @@
 from datetime import datetime, timezone
 from encoders.datetime_features import DatetimeFeatureBase, DatetimeFeature, DT_DICT
 from typing import Any
-from hash_list import hash_list_to_string
+from util import hash_list_to_string
 
 class DatetimeEncoder:
     def __init__(self, features: list[type[DatetimeFeatureBase]]):
+        """
+        Create a new DatetimeEncoder with a list of DateTimeFeature types to be used for Encoding
+        """
         self.features = features
         
         # calculate dimension
@@ -19,21 +22,32 @@ class DatetimeEncoder:
         self.dimension = dimension
 
     def extract_date_time_features(self, dt: datetime) -> dict[str, Any]:
+        """
+        Creates a dictionary of encoded Datetime Features
+        """
         if dt.tzinfo is None or dt.utcoffset() is None: 
             dt = dt.replace(tzinfo=timezone.utc)
 
         return {(instance := f(dt)).key: instance.value for f in self.features}
 
     def get_dimension(self):
+        """
+        Get the output dimension of the DatetimeEncoder
+        """
         return self.dimension
 
     def get_key(self):
+        """
+        Get a key unique to the Encoder
+        """
         key = hash_list_to_string([
             "DatetimeEncoder",
             *[f.key for f in self.features]
         ], 16)
         return key
 
+
+    # helper methods for pickle serialization
     def __getstate__(self):
         # Copy normal state but drop/replace the unpicklable object
         state = self.__dict__.copy()

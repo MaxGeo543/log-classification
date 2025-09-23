@@ -22,8 +22,7 @@ class DatetimeFeatureBase(ABC):
         """
         Initialize the datetime feature with a value.
 
-        Args:
-            value (Any): The computed feature value.
+        :params value: The computed feature value.
         """
         self.value = value
 
@@ -48,8 +47,7 @@ class NormalizedDatetimeFeatureBase:
         """
         Dynamically creates the `normalized` feature class.
 
-        Returns:
-            Type[DatetimeFeatureBase]: A class that computes the normalized feature.
+        :returns: Type[DatetimeFeatureBase]: A class that computes the normalized feature.
         """
         class normalized(DatetimeFeatureBase):
             """
@@ -61,11 +59,9 @@ class NormalizedDatetimeFeatureBase:
                 """
                 Initialize the normalized version of the feature.
 
-                Args:
-                    dt (datetime): The datetime to compute the feature from.
+                :params dt: The datetime to compute the feature from.
 
-                Raises:
-                    Exception: If required attributes are not set on the original feature.
+                :raises Exception: If required attributes are not set on the original feature.
                 """
                 x = cls(dt)
 
@@ -84,13 +80,11 @@ class NormalizedDatetimeFeatureBase:
                 """
                 Normalize a value to the [0, 1] range.
 
-                Args:
-                    value (float): The value to normalize.
-                    min_val (float): The minimum possible value.
-                    max_val (float): The maximum possible value.
+                :params value:  The value to normalize.
+                :params min_val: The minimum possible value.
+                :params max_val: The maximum possible value.
 
-                Returns:
-                    float: The normalized value.
+                :returns: float: The normalized value.
                 """
                 return (value - min_val) / (max_val - min_val)
 
@@ -123,8 +117,7 @@ class CyclicDatetimeFeatureBase:
         """
         Dynamically creates the `cyclic` feature class.
 
-        Returns:
-            Type[DatetimeFeatureBase]: A class that computes cyclically encoded features.
+        :returns: Type[DatetimeFeatureBase]: A class that computes cyclically encoded features.
         """
         class cyclic(DatetimeFeatureBase, NormalizedDatetimeFeatureBase):
             """
@@ -142,11 +135,9 @@ class CyclicDatetimeFeatureBase:
                 """
                 Initialize the cyclically encoded version of the feature.
 
-                Args:
-                    dt (datetime): The datetime to compute the feature from.
+                :params dt: The datetime to compute the feature from.
 
-                Raises:
-                    Exception: If required attributes are not set on the original feature.
+                :raises Exception: If required attributes are not set on the original feature.
                 """
                 x = cls(dt)
 
@@ -162,13 +153,11 @@ class CyclicDatetimeFeatureBase:
                 """
                 Transform a value into a 2D cyclic representation (sin, cos).
 
-                Args:
-                    value (float): The value to transform.
-                    min_val (float): The minimum of the range.
-                    max_val (float): The maximum of the range.
+                :params value: The value to transform.
+                :params min_val: The minimum of the range.
+                :params max_val: The maximum of the range.
 
-                Returns:
-                    Tuple[float, float]: The (sin, cos) encoded representation.
+                :returns: Tuple[float, float]: The (sin, cos) encoded representation.
                 """
                 period = max_val - min_val + 1
                 normalized = (value - min_val) / period
@@ -209,8 +198,7 @@ class SinceMidnightDatetimeFeatureBase:
         """
         Dynamically creates the `since_midnight` feature class.
 
-        Returns:
-            Type[DatetimeFeatureBase]: A class that computes time since midnight.
+        :returns: Type[DatetimeFeatureBase]: A class that computes time since midnight.
         """
         class since_midnight(DatetimeFeatureBase):
             """
@@ -222,11 +210,9 @@ class SinceMidnightDatetimeFeatureBase:
                 """
                 Initialize the feature representing time since midnight.
 
-                Args:
-                    dt (datetime): The datetime to compute from.
+                :params dt: The datetime to compute from.
 
-                Raises:
-                    Exception: If `_calculate_since_midnight` method is not defined in subclass.
+                :raises Exception: If `_calculate_since_midnight` method is not defined in subclass.
                 """
                 if hasattr(cls, "_calculate_since_midnight"):
                     value = cls._calculate_since_midnight(dt)
@@ -263,8 +249,7 @@ class SinceEpochDatetimeFeatureBase:
         """
         Dynamically creates the `since_epoch` feature class.
 
-        Returns:
-            Type[DatetimeFeatureBase]: A class that computes time since epoch.
+        :returns: Type[DatetimeFeatureBase]: A class that computes time since epoch.
         """
         class since_epoch(DatetimeFeatureBase):
             """
@@ -276,11 +261,9 @@ class SinceEpochDatetimeFeatureBase:
                 """
                 Initialize the feature representing time since epoch.
 
-                Args:
-                    dt (datetime): The datetime to compute from.
+                :params dt: The datetime to compute from.
 
-                Raises:
-                    Exception: If `_calculate_since_epoch` method is not defined in subclass.
+                :raises Exception: If `_calculate_since_epoch` method is not defined in subclass.
                 """
                 if hasattr(cls, "_calculate_since_epoch"):
                     value = cls._calculate_since_epoch(dt)
@@ -320,8 +303,7 @@ class DatetimeFeature:
             """
             Initialize the day feature from a datetime object.
 
-            Args:
-                dt (datetime): The datetime object to extract the day from.
+            :params dt: The datetime object to extract the day from.
             """
             self.max_value = calendar.monthrange(dt.year, dt.month)[1] - 1
             DatetimeFeatureBase.__init__(self, dt.day - 1)
@@ -331,11 +313,9 @@ class DatetimeFeature:
             """
             Calculate the number of days since the Unix epoch for the given datetime.
 
-            Args:
-                dt (datetime): The datetime to calculate from.
+            :params dt: The datetime to calculate from.
 
-            Returns:
-                int: Number of days since epoch.
+            :returns: int: Number of days since epoch.
             """
             return (dt - _epoch).days
 
@@ -358,8 +338,7 @@ class DatetimeFeature:
             """
             Initialize the week feature from a datetime object.
 
-            Args:
-                dt (datetime): The datetime object to extract the week from.
+            :params dt: The datetime object to extract the week from.
             """
             
             self.max_value = date(dt.year, 12, 28).isocalendar()[1] - 1
@@ -370,11 +349,9 @@ class DatetimeFeature:
             """
             Calculate the number of weeks since the Unix epoch for the given datetime.
 
-            Args:
-                dt (datetime): The datetime to calculate from.
+            :params dt: The datetime to calculate from.
 
-            Returns:
-                int: Number of weeks since epoch.
+            :returns: int: Number of weeks since epoch.
             """
             days_since_epoch = (dt - _epoch).days
             return days_since_epoch / 7
@@ -399,8 +376,7 @@ class DatetimeFeature:
             """
             Initialize the month feature from a datetime object.
 
-            Args:
-                dt (datetime): The datetime object to extract the month from.
+            :params dt: The datetime object to extract the month from.
             """
             super().__init__(dt.month - 1)
         
@@ -409,11 +385,9 @@ class DatetimeFeature:
             """
             Calculate the number of months since the Unix epoch for the given datetime.
 
-            Args:
-                dt (datetime): The datetime to calculate from.
+            :params dt: The datetime to calculate from.
 
-            Returns:
-                int: Number of months since epoch.
+            :returns: int: Number of months since epoch.
             """
             days_since_epoch = (dt - _epoch).days
             years_since_epoch = days_since_epoch / 365.2425
@@ -438,8 +412,7 @@ class DatetimeFeature:
                 """
                 Initialize the days in month feature from a datetime object.
 
-                Args:
-                    dt (datetime): The datetime object to extract the days in month from.
+                :params dt: The datetime object to extract the days in month from.
                 """
 
                 super().__init__(calendar.monthrange(dt.year, dt.month)[1])
@@ -459,8 +432,7 @@ class DatetimeFeature:
             """
             Initialize the year feature from a datetime object.
 
-            Args:
-                dt (datetime): The datetime object to extract the year from.
+            :params dt: The datetime object to extract the year from.
             """
             super().__init__(dt.year)
         
@@ -469,11 +441,9 @@ class DatetimeFeature:
             """
             Calculate the number of years since the Unix epoch for the given datetime.
 
-            Args:
-                dt (datetime): The datetime to calculate from.
+            :params dt: The datetime to calculate from.
 
-            Returns:
-                int: Number of years since epoch.
+            :returns: int: Number of years since epoch.
             """
             days_since_epoch = (dt - _epoch).days
             return days_since_epoch / 365.2425
@@ -496,8 +466,7 @@ class DatetimeFeature:
                 """
                 Initialize the number of calendar weeks in a year feature from a datetime object.
 
-                Args:
-                    dt (datetime): The datetime object to extract the days in month from.
+                :params dt: The datetime object to extract the days in month from.
                 """
                 
                 super().__init__(date(dt.year, 12, 28).isocalendar()[1])
@@ -521,8 +490,7 @@ class DatetimeFeature:
             """
             Initialize the weekday feature from a datetime object.
 
-            Args:
-                dt (datetime): The datetime object to extract the weekday from.
+            :params dt: The datetime object to extract the weekday from.
             """
             super().__init__(dt.weekday())
     
@@ -547,8 +515,7 @@ class DatetimeFeature:
             """
             Initialize the hour feature from a datetime object.
 
-            Args:
-                dt (datetime): The datetime object to extract the hour from.
+            :params dt: The datetime object to extract the hour from.
             """
             super().__init__(dt.hour)
         
@@ -557,11 +524,9 @@ class DatetimeFeature:
             """
             Calculate the hours since the Unix epoch for the given datetime.
 
-            Args:
-                dt (datetime): The datetime to calculate from.
+            :params dt: The datetime to calculate from.
 
-            Returns:
-                int: Number of hours since epoch.
+            :returns: int: Number of hours since epoch.
             """
             return (dt - _epoch).total_seconds() / 3600
         
@@ -570,11 +535,9 @@ class DatetimeFeature:
             """
             Calculate the number of hours since midnight for the given datetime.
 
-            Args:
-                dt (datetime): The datetime to calculate from.
+            :params dt: The datetime to calculate from.
 
-            Returns:
-                int: Number of hours since midnight.
+            :returns: int: Number of hours since midnight.
             """
             return dt.hour + dt.minute / 60 + dt.second / 3600
     
@@ -599,8 +562,7 @@ class DatetimeFeature:
             """
             Initialize the minute feature from a datetime object.
 
-            Args:
-                dt (datetime): The datetime object to extract the minute from.
+            :params dt: The datetime object to extract the minute from.
             """
             super().__init__(dt.minute)
         
@@ -609,11 +571,9 @@ class DatetimeFeature:
             """
             Calculate the minutes since the Unix epoch for the given datetime.
 
-            Args:
-                dt (datetime): The datetime to calculate from.
+            :params dt: The datetime to calculate from.
 
-            Returns:
-                int: Number of minutes since epoch.
+            :returns: int: Number of minutes since epoch.
             """
             return (dt - _epoch).total_seconds() / 60
 
@@ -622,11 +582,9 @@ class DatetimeFeature:
             """
             Calculate the number of minutes since midnight for the given datetime.
 
-            Args:
-                dt (datetime): The datetime to calculate from.
+            :params dt: The datetime to calculate from.
 
-            Returns:
-                int: Number of minutes since midnight.
+            :returns: int: Number of minutes since midnight.
             """
             return dt.hour * 60 + dt.minute + dt.second / 60
     
@@ -651,8 +609,7 @@ class DatetimeFeature:
             """
             Initialize the second feature from a datetime object.
 
-            Args:
-                dt (datetime): The datetime object to extract the second from.
+            :params dt: The datetime object to extract the second from.
             """
             super().__init__(dt.second)
         
@@ -661,11 +618,9 @@ class DatetimeFeature:
             """
             Calculate the seconds since the Unix epoch for the given datetime.
 
-            Args:
-                dt (datetime): The datetime to calculate from.
+            :params dt: The datetime to calculate from.
 
-            Returns:
-                int: Number of seconds since epoch.
+            :returns: int: Number of seconds since epoch.
             """
             return (dt - _epoch).total_seconds()
 
@@ -674,11 +629,9 @@ class DatetimeFeature:
             """
             Calculate the number of seconds since midnight for the given datetime.
 
-            Args:
-                dt (datetime): The datetime to calculate from.
+            :params dt: The datetime to calculate from.
 
-            Returns:
-                int: Number of seconds since midnight.
+            :returns: int: Number of seconds since midnight.
             """
             return dt.hour * 3600 + dt.minute * 60 + dt.second
         
@@ -695,8 +648,7 @@ class DatetimeFeature:
             """
             Initialize the is_weekend feature from a datetime object.
 
-            Args:
-                dt (datetime): The datetime object to extract the is_weekend feature from.
+            :params dt: The datetime object to extract the is_weekend feature from.
             """
             weekday = dt.weekday()
             super().__init__(int(weekday >= 5))  
@@ -713,8 +665,7 @@ class DatetimeFeature:
             """
             Initialize the is_leap_year feature from a datetime object.
 
-            Args:
-                dt (datetime): The datetime object to extract the is_leap_year feature from.
+            :params dt: The datetime object to extract the is_leap_year feature from.
             """
             super().__init__(int(calendar.isleap(dt.year)))
 

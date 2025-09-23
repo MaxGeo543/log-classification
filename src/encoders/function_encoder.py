@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from sklearn.preprocessing import LabelEncoder, OrdinalEncoder, OneHotEncoder
-from hash_list import hash_list_to_string
+from util import hash_list_to_string
 
 # FunctionEncoder Base
 class FunctionEncoder(ABC):
@@ -9,21 +9,38 @@ class FunctionEncoder(ABC):
     
     @abstractmethod
     def initialize(self, all_functions):
+        """
+        Initialize the FunctionEncoder with all functions
+        """
         raise NotImplementedError()
 
     @abstractmethod
     def encode(self, function: str):
+        """
+        Encode a single function
+        """
         raise NotImplementedError()
     
     @abstractmethod
     def get_dimension(self):
+        """
+        Get the output dimension of function encodings
+        """
         raise NotImplementedError()
     
     @abstractmethod
     def get_key(self):
+        """
+        Get a key unique to the Encoder
+        """
         raise NotImplementedError()
 
 class FunctionLabelEncoder(FunctionEncoder):
+    """
+    Encode functions with value between 0 and n_functions-1.
+    This uses the sklearn.preprocessing.LabelEncoder, explicitely stating to be used with Output, not input, therefore it is recommended to use 
+    FunctionOrdinalEncoder instead
+    """
     def __init__(self):
         super().__init__()
         self.label_encoder = LabelEncoder()
@@ -46,6 +63,11 @@ class FunctionLabelEncoder(FunctionEncoder):
         return key
 
 class FunctionOrdinalEncoder(FunctionEncoder):
+    """
+    Encode categorical features as an integer array. Encode classes with value between 0 and n_classes-1. Functionally the same as LabelEncoder.
+    Unrecognized values will be encoded as -1.
+    This uses the sklearn.preprocessing.OrdinalEncoder
+    """
     def __init__(self):
         super().__init__()
         self.ordinal_encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
@@ -70,7 +92,16 @@ class FunctionOrdinalEncoder(FunctionEncoder):
         return key
 
 class FunctionOneHotEncoder(FunctionEncoder):
+    """
+    Encode functions into a One-Hot Encoded Vector 
+    Uses sklearn.preprocessing.OneHotEncoder
+    """
     def __init__(self, min_frequency: int = 2, max_categories: int | None = None):
+        """
+        :params min_frequency: How often a function must appear in the initialization data to be considered a function
+        :params max_categories: The maximum amount of categories
+        """
+        
         super().__init__()
         self.min_frequency = min_frequency
         self.max_categories = max_categories
@@ -101,7 +132,7 @@ class FunctionOneHotEncoder(FunctionEncoder):
 
 
 if __name__ == "__main__":
-    x = FunctionOneHotEncoder(min_frequency=1)
+    x = FunctionOrdinalEncoder()
     x.initialize(["a", "b", "c"])
     print(x.get_dimension())
     print(x.encode("d"))

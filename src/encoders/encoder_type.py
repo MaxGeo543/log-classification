@@ -5,6 +5,10 @@ from encoders.message_encoder import MessageEncoder
 from encoders.classes_encoder import ClassesEncoder
 
 class EncoderType:
+    """
+    Defines the different types of encoders
+    """
+    
     datetime = "datetime"
     loglevel = "loglevel"
     function = "function"
@@ -13,6 +17,9 @@ class EncoderType:
 
     @classmethod
     def types(cls):
+        """
+        Get a list of all encoder types
+        """
         return [
             value for name, value in cls.__dict__.items()
             if not name.startswith('__')
@@ -21,7 +28,10 @@ class EncoderType:
         ]
 
     @classmethod
-    def to_str(cls, obj):
+    def to_str(cls, obj: object):
+        """
+        Get the string name of the encoder type of an encoder object
+        """
         if isinstance(obj, DatetimeEncoder):
             return cls.datetime
         elif isinstance(obj, LogLevelEncoder):
@@ -37,6 +47,9 @@ class EncoderType:
 
     @classmethod
     def to_type(cls, st: str):
+        """
+        Get the encoder type using the string name 
+        """
         if st == cls.datetime:
             return DatetimeEncoder
         elif st == cls.function:

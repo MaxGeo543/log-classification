@@ -1,14 +1,9 @@
 import tensorflow as tf
 import keras
 
+# positional encoding used for the transformer model
+
 class PositionalEncoding(keras.layers.Layer):
-    def call(self, x):
-        positions = tf.range(start=0, limit=tf.shape(x)[1], delta=1)
-        pos_encoding = tf.cast(positions[:, tf.newaxis], tf.float32)
-        return x + tf.math.sin(pos_encoding)
-
-
-class PositionalEncoding2(keras.layers.Layer):
     def __init__(self, n=10000, **kwargs):
         super().__init__(**kwargs)
         self.n = float(n)
