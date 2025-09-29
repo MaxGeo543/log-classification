@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "log-classification"         # pip name can have a dash
+version = "0.1.0"
+description = "Log classification"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  # move runtime deps here (from requirements.txt)
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["log_classification*", "classification_report*"]
+exclude = ["log_classification.scripts*"]   # <-- scripts won't be installed
+
+# (Optional) provide a CLI command in addition to python -m
+[project.scripts]
+log-classification = "classification_report.cli:main"
