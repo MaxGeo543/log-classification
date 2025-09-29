@@ -24,8 +24,8 @@ PREPROCESSOR_PATH = DATASET_PATH = None
 # DATASET_PATH = r".\data\datasets\[20250925_151312]dataset.npz"
 
 # smaller dataset (100 logs per class, 20 logs per window)
-PREPROCESSOR_PATH = r".\preprocessors\[1AwJTQMuN-CZAk6S][20250925_154810]preprocessor-window_size_20.json"
-DATASET_PATH = r".\data\datasets\[20250925_161456]dataset.npz"
+#PREPROCESSOR_PATH = r".\preprocessors\[1AwJTQMuN-CZAk6S][20250925_154810]preprocessor-window_size_20.json"
+#DATASET_PATH = r".\data\datasets\[20250925_161456]dataset.npz"
 
 VERBOSE = True
 LOGS_PER_CLASS = 200
