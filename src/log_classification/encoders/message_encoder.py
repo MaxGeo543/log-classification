@@ -4,7 +4,7 @@ from keras.layers import TextVectorization
 from transformers import BertTokenizer
 from transformers import BertModel
 from typing import Any
-from util import hash_list_to_string
+from log_classification.util import hash_list_to_string
 
 # Standardization strategy Base
 class Standardization(ABC):

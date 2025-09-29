@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from sklearn.preprocessing import LabelEncoder, OrdinalEncoder, OneHotEncoder
-from util import hash_list_to_string
+from log_classification.util import hash_list_to_string
 
 # FunctionEncoder Base
 class FunctionEncoder(ABC):

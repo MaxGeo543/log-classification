@@ -1,10 +1,10 @@
 import pickle
 from pathlib import Path
-from encoders.datetime_encoder import DatetimeEncoder
-from encoders.loglevel_encoder import LogLevelEncoder
-from encoders.function_encoder import FunctionEncoder
-from encoders.message_encoder import MessageEncoder
-from encoders.encoder_type import EncoderType
+from log_classification.encoders.datetime_encoder import DatetimeEncoder
+from log_classification.encoders.loglevel_encoder import LogLevelEncoder
+from log_classification.encoders.function_encoder import FunctionEncoder
+from log_classification.encoders.message_encoder import MessageEncoder
+from log_classification.encoders.encoder_type import EncoderType
 
 def save_encoder_if_new(encoder: DatetimeEncoder | LogLevelEncoder | FunctionEncoder | MessageEncoder,
                         base_path: str, 

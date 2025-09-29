@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
-from encoders.datetime_features import DatetimeFeatureBase, DatetimeFeature, DT_DICT
+from log_classification.encoders.datetime_features import DatetimeFeatureBase, DatetimeFeature, DT_DICT
 from typing import Any
-from util import hash_list_to_string
+from log_classification.util import hash_list_to_string
 
 class DatetimeEncoder:
     def __init__(self, features: list[type[DatetimeFeatureBase]]):
