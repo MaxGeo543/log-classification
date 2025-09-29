@@ -7,7 +7,7 @@ name = "log-classification"         # pip name can have a dash
 version = "0.1.0"
 description = "Log classification"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
   # move runtime deps here (from requirements.txt)
 ]
