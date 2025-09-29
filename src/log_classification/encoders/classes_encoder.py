@@ -1,6 +1,6 @@
 from sklearn.preprocessing import LabelEncoder, LabelBinarizer
 from abc import ABC, abstractmethod
-from util import hash_list_to_string
+from log_classification.util import hash_list_to_string
 import numpy as np
 
 class ClassesEncoder(ABC):

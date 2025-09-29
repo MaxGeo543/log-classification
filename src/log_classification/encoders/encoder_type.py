@@ -1,8 +1,8 @@
-from encoders.datetime_encoder import DatetimeEncoder
-from encoders.loglevel_encoder import LogLevelEncoder
-from encoders.function_encoder import FunctionEncoder
-from encoders.message_encoder import MessageEncoder
-from encoders.classes_encoder import ClassesEncoder
+from log_classification.encoders.datetime_encoder import DatetimeEncoder
+from log_classification.encoders.loglevel_encoder import LogLevelEncoder
+from log_classification.encoders.function_encoder import FunctionEncoder
+from log_classification.encoders.message_encoder import MessageEncoder
+from log_classification.encoders.classes_encoder import ClassesEncoder
 
 class EncoderType:
     """
