@@ -23,7 +23,7 @@ class Classes(Generic[T, O]):
         :param classes: a list of all possible values the classifier can classify into
         :param annotate: a callable object that takes an object and returns a label (class), used to annotate objects, or `None`
         """
-        self.values = classes
+        self.values = sorted(classes)
         self._annotate = annotate
     
     def annotate(self, obj: O) -> T:

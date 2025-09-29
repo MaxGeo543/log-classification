@@ -1,8 +1,9 @@
 from keras.layers import Dense, GlobalAveragePooling1D
-
 from keras import layers
 from keras.saving import register_keras_serializable
-from positional_encoding import PositionalEncoding
+import tensorflow as tf
+
+from log_classification.positional_encoding import PositionalEncoding
 
 
 @register_keras_serializable(package="custom")
@@ -42,14 +43,39 @@ class TransformerBlock(layers.Layer):
 
         self.supports_masking = True
 
+    def build(self, input_shape):
+        # input_shape: (batch, timesteps, model_dim)
+        x_shape = tf.TensorShape(input_shape)
+
+        # MHA expects [query_shape, value_shape, key_shape]
+        self.attn.build([x_shape, x_shape, x_shape])
+        self.dropout1.build(x_shape)
+        self.add1.build([x_shape, x_shape])
+        self.norm1.build(x_shape)
+
+        # FFN: Dense -> Dense, both time-distributed by shape
+        self.ffn_dense1.build(x_shape)  # out: (..., ff_dim)
+        ff_out_shape = tf.TensorShape([x_shape[0], x_shape[1], self.ff_dim])
+        self.ffn_dense2.build(ff_out_shape)  # back to (..., model_dim)
+
+        self.dropout2.build(x_shape)
+        self.add2.build([x_shape, x_shape])
+        self.norm2.build(x_shape)
+
+        super().build(input_shape)
+
     def call(self, x, training=None, mask=None):
-        # Self-attention (use the incoming sequence mask if provided)
-        attn_out = self.attn(x, x, attention_mask=mask, training=training)
+        # Convert a (batch, seq_len) padding mask into a 3D attention mask if provided.
+        attn_mask = None
+        if mask is not None:
+            # (batch, 1, seq_len) broadcasts across target length
+            attn_mask = tf.cast(mask[:, tf.newaxis, :], tf.int32)
+
+        attn_out = self.attn(x, x, attention_mask=attn_mask, training=training)
         attn_out = self.dropout1(attn_out, training=training)
         x = self.add1([x, attn_out])
         x = self.norm1(x)
 
-        # Feed-forward
         ff = self.ffn_dense1(x)
         ff = self.ffn_dense2(ff)
         ff = self.dropout2(ff, training=training)
@@ -58,8 +84,12 @@ class TransformerBlock(layers.Layer):
         return x
 
     def compute_mask(self, inputs, mask=None):
-        # Keep the same mask shape for downstream layers.
+        # Preserve the incoming (batch, seq_len) mask for downstream layers.
         return mask
+
+    def compute_output_shape(self, input_shape):
+        # Same shape as input: (batch, timesteps, model_dim)
+        return tf.TensorShape(input_shape)
 
     def get_config(self):
         config = super().get_config()
@@ -73,28 +103,26 @@ class TransformerBlock(layers.Layer):
         )
         return config
 
+
 @register_keras_serializable(package="custom")
 class TransformerClassifierLayer(layers.Layer):
     """
-    A reusable Transformer encoder stack + classifier, implemented as a Keras Layer.
-    Plug into Functional or Sequential models.
+    Transformer encoder stack + classifier, reusable as a Keras Layer.
 
     Pipeline:
-      Dense(model_dim) -> (optional) PositionalEmbedding ->
+      Dense(model_dim) -> PositionalEncoding ->
       [TransformerBlock] * transformer_layers ->
       GlobalAveragePooling1D -> Dense(hidden_units, relu) -> Dense(num_classes, softmax)
     """
     def __init__(
         self,
         num_classes: int,
-
         transformer_layers: int = 2,
         model_dim: int = 128,
         num_heads: int = 4,
         ff_dim: int = 256,
         dropout: float = 0.1,
         hidden_units: int = 64,
-        
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -111,9 +139,8 @@ class TransformerClassifierLayer(layers.Layer):
         # Input projection to model dimension
         self._proj = Dense(self.model_dim)
 
-        # Optional positional embedding
+        # Positional embedding (assumed to be a Layer)
         self._pos = PositionalEncoding()
-
 
         # Transformer stack
         self._blocks = [
@@ -131,10 +158,36 @@ class TransformerClassifierLayer(layers.Layer):
         self._hidden = Dense(self.hidden_units, activation="relu")
         self._classifier = Dense(self.num_classes, activation="softmax")
 
-    def call(self, inputs, training = None, mask=None):
+    def build(self, input_shape):
+        # input_shape: (batch, timesteps, features)
+        in_shape = tf.TensorShape(input_shape)
+
+        # Project to model_dim along the last axis
+        self._proj.build(in_shape)
+        x_shape = tf.TensorShape([in_shape[0], in_shape[1], self.model_dim])
+
+        # PositionalEncoding may or may not implement build; handle both
+        if hasattr(self._pos, "build") and not self._pos.built:
+            self._pos.build(x_shape)
+
+        # Transformer blocks keep the same shape
+        for blk in self._blocks:
+            blk.build(x_shape)
+
+        # GAP -> (batch, model_dim)
+        self._gap.build(x_shape)
+        gap_out_shape = tf.TensorShape([x_shape[0], self.model_dim])
+
+        # Head
+        self._hidden.build(gap_out_shape)
+        self._classifier.build(tf.TensorShape([gap_out_shape[0], self.hidden_units]))
+
+        super().build(input_shape)
+
+    def call(self, inputs, training=None, mask=None):
         x = self._proj(inputs)
         if self._pos is not None:
-            x = self._pos(x)  # adds positional embeddings
+            x = self._pos(x)  # adds positional encodings
 
         for block in self._blocks:
             x = block(x, training=training, mask=mask)
@@ -142,6 +195,10 @@ class TransformerClassifierLayer(layers.Layer):
         x = self._gap(x, mask=mask)
         x = self._hidden(x)
         return self._classifier(x)
+
+    def compute_output_shape(self, input_shape):
+        # Final classification logits: (batch, num_classes)
+        return tf.TensorShape([input_shape[0], self.num_classes])
 
     def get_config(self):
         config = super().get_config()
@@ -153,7 +210,6 @@ class TransformerClassifierLayer(layers.Layer):
                 "num_heads": self.num_heads,
                 "ff_dim": self.ff_dim,
                 "dropout": self.dropout,
-                "max_length": self.max_length,
                 "hidden_units": self.hidden_units,
             }
         )

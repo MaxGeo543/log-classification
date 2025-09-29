@@ -1,6 +1,7 @@
 from keras.layers import LSTM, Dense, Layer
 from keras import layers
 from keras.saving import register_keras_serializable
+import tensorflow as tf
 
 
 @register_keras_serializable(package="custom")
@@ -12,7 +13,7 @@ class LSTMClassifierLayer(Layer):
     def __init__(
         self,
         num_classes: int,
-        layers: int = 1,
+        lstm_layers: int = 1,
         units: int = 50,
         dropout: float = 0.0,
         recurrent_dropout: float = 0.0,
@@ -20,7 +21,7 @@ class LSTMClassifierLayer(Layer):
     ):
         super().__init__(**kwargs)
         self.num_classes = int(num_classes)
-        self.lstm_layers = int(layers)
+        self.lstm_layers = int(lstm_layers)
         self.units = int(units)
         self.dropout = float(dropout)
         self.recurrent_dropout = float(recurrent_dropout)
@@ -63,4 +64,24 @@ class LSTMClassifierLayer(Layer):
         )
         return config
 
+    def build(self, input_shape):
+        # input_shape: (batch, timesteps, features)
+        x_shape = tf.TensorShape(input_shape)
 
+        for lstm in self._lstm_stack:
+            # Build current LSTM with the incoming shape
+            lstm.build(x_shape)
+
+            # Compute outgoing shape for the next layer
+            if lstm.return_sequences:
+                # (batch, timesteps, units)
+                x_shape = tf.TensorShape([x_shape[0], x_shape[1], lstm.units])
+            else:
+                # (batch, units)
+                x_shape = tf.TensorShape([x_shape[0], lstm.units])
+
+        # Build classifier on final shape
+        self._classifier.build(x_shape)
+
+        # Important: mark this layer as built
+        super().build(input_shape)

@@ -2,39 +2,40 @@ from rich import print
 import os
 from typing import Any, Dict, List
 
-from util import get_sorted_log_numbers_by_size
-from dataset import Dataset
-from classes import classes, annotate as cl_annotate
-from lstm import LSTMClassifierLayer
-from classifier import Classifier
-from transformer import TransformerClassifierLayer
-from preprocessor import Preprocessor
-from data_augmentation import remove_and_pad
-from encoders.datetime_encoder import DatetimeEncoder
-from encoders.datetime_features import DatetimeFeature, DatetimeFeatureBase
-from encoders.loglevel_encoder import LogLevelEncoder, LogLevelOrdinalEncoder, LogLevelOneHotEncoder
-from encoders.message_encoder import MessageEncoder, MessageTextVectorizationEncoder, MessageBERTEmbeddingEncoder, MessageBERTEncoder
-from encoders.function_encoder import FunctionEncoder, FunctionLabelEncoder, FunctionOneHotEncoder, FunctionOrdinalEncoder
-from encoders.classes_encoder import ClassesEncoder, ClassesLabelBinarizer, ClassesLabelEncoder
+from log_classification.util import get_sorted_log_numbers_by_size
+from log_classification.dataset import Dataset
+from log_classification.classes import classes, annotate as cl_annotate
+from log_classification.lstm import LSTMClassifierLayer
+from log_classification.classifier import Classifier
+from log_classification.transformer import TransformerClassifierLayer
+from log_classification.preprocessor import Preprocessor
+from log_classification.data_augmentation import remove_and_pad
+from log_classification.encoders.datetime_encoder import DatetimeEncoder
+from log_classification.encoders.datetime_features import DatetimeFeature, DatetimeFeatureBase
+from log_classification.encoders.loglevel_encoder import LogLevelEncoder, LogLevelOrdinalEncoder, LogLevelOneHotEncoder
+from log_classification.encoders.message_encoder import MessageEncoder, MessageTextVectorizationEncoder, MessageBERTEmbeddingEncoder, MessageBERTEncoder
+from log_classification.encoders.function_encoder import FunctionEncoder, FunctionLabelEncoder, FunctionOneHotEncoder, FunctionOrdinalEncoder
+from log_classification.encoders.classes_encoder import ClassesEncoder, ClassesLabelBinarizer, ClassesLabelEncoder
 
 PREPROCESSOR_PATH = DATASET_PATH = None
 
 # large dataset (200 logs per class, 50 logs per window)
-# PREPROCESSOR_PATH = "./preprocessors/[Etxk7-u9DWzAAcFS][20250819_150015]train_model_pp.json"
-# DATASET_PATH = "./data/datasets/[20250821_110453]dataset.npz"
+# PREPROCESSOR_PATH = r".\preprocessors\[chbt2s4V18eW9fsI][20250925_142809]preprocessor-window_size_50.json"
+# DATASET_PATH = r".\data\datasets\[20250925_151312]dataset.npz"
 
 # smaller dataset (100 logs per class, 20 logs per window)
-# PREPROCESSOR_PATH = "./preprocessors/[Etxk7-u9DWzAAcFS][20250829_112751]train_model_pp.json"# r"preprocessors\[Etxk7-u9DWzAAcFS][20250821_130907]train_model_pp.json"
-# DATASET_PATH = "./data/datasets/[20250829_120602]dataset.npz"#r"data\datasets\[20250821_134533]dataset.npz"
+PREPROCESSOR_PATH = r".\preprocessors\[1AwJTQMuN-CZAk6S][20250925_154810]preprocessor-window_size_20.json"
+DATASET_PATH = r".\data\datasets\[20250925_161456]dataset.npz"
 
 VERBOSE = True
 LOGS_PER_CLASS = 200
 EVALUATION_NAME = "evaluations/test"
+MODEL_SAVE_NAME = "pp_small.keras"
 MODEL_TYPE = "lstm" # or transformer
 
 PREPROCESSOR_CONFIG = {
-    "name": "test_pp",
-    "window_size":       50,
+    "name": "preprocessor-window_size_20",
+    "window_size":       20,
     "classes_encoder":   ClassesLabelEncoder(),
     "message_encoder":   MessageBERTEmbeddingEncoder(output_mode="cls"),
     "log_level_encoder": LogLevelOneHotEncoder(),
@@ -45,7 +46,7 @@ PREPROCESSOR_CONFIG = {
 }
 
 LSTM_CONFIG = {
-    "layers":              1,
+    "lstm_layers":         1,
     "units":              50,
     "dropout":           0.0,
     "recurrent_dropout": 0.0,
@@ -72,7 +73,7 @@ TRAINING_CONFIG = {
     "batch_size":              32,
 
     "es_monitor":              "val_loss",
-    "es_patience":             500,
+    "es_patience":             200,
     "es_restore_best":         True,
 
     "pl_unlabeled_data":       None,
@@ -104,17 +105,17 @@ def get_preprocessor(src: str | Dict[str, Any],
     :return: A `Preprocessor` object
     """
     
-    if verbose: print("[blue]Loading preprocessor...[/blue]")
+    if verbose: print("[cyan]Loading preprocessor...[/cyan]")
     
     if isinstance(src, str):
-        if verbose: print(f"[blue]Loading preprocessor from file: {src}[/blue]")
+        if verbose: print(f"[cyan]Loading preprocessor from file: {src}[/cyan]")
         if not os.path.exists(src):
             raise FileNotFoundError(f"Preprocessor file not found: {src}")
 
         pp = Preprocessor.load(src, annotate=cl_annotate, verbose=verbose)
         if verbose: print("[green]Preprocessor successfully loaded.[/green]")
     else:
-        if verbose: print("[blue]Creating new preprocessor from config...[/blue]")
+        if verbose: print("[cyan]Creating new preprocessor from config...[/cyan]")
 
         config = src
 
@@ -138,15 +139,15 @@ def get_preprocessor(src: str | Dict[str, Any],
         )
         if verbose: print("[green]Preprocessor successfully created.[/green]")
 
-        if verbose: print("[blue]Load log files...[/blue]")
+        if verbose: print("[cyan]Load log files...[/cyan]")
         pp.load_logfiles([LOGFILE_PATTERN.format(num=num) for num in logs_to_load])
         if verbose: print("[green]Log files successfully loaded.[/green]")
 
-        if verbose: print("[blue]Initializing encoders...[/blue]")
+        if verbose: print("[cyan]Initializing encoders...[/cyan]")
         pp.initialize_encoders()
         if verbose: print("[green]Encoders successfully initialized.[/green]")
 
-        if verbose: print("[blue]Saving preprocessor to file...[/blue]")
+        if verbose: print("[cyan]Saving preprocessor to file...[/cyan]")
         files = pp.save("./preprocessors")
         if verbose: 
             print(f"[green]Preprocessor successfully saved to:[/green]")
@@ -175,10 +176,10 @@ def get_dataset(src: str | Preprocessor,
     :return: A `Dataset` object
     """
     
-    if verbose: print("[blue]Loading dataset...[/blue]")
+    if verbose: print("[cyan]Loading dataset...[/cyan]")
     # create dataset
     if isinstance(src, str):
-        if verbose: print("[blue]Loading dataset from file...[/blue]")
+        if verbose: print("[cyan]Loading dataset from file...[/cyan]")
         if not os.path.exists(src):
             raise FileNotFoundError(f"Data file not found: {src}")
         dataset = Dataset.load(src)
@@ -186,16 +187,16 @@ def get_dataset(src: str | Preprocessor,
         return dataset
     elif isinstance(src, Preprocessor):
         pp = src
-        if verbose: print("[blue]Loading dataset by preprocessing and annotating logs...[/blue]")
+        if verbose: print("[cyan]Loading dataset by preprocessing and annotating logs...[/cyan]")
         if len(pp.events) == 0:
-            if verbose: print("[blue]Loading log files...[/blue]")
+            if verbose: print("[cyan]Loading log files...[/cyan]")
             pp.load_logfiles([LOGFILE_PATTERN.format(num=num) for num in logs_to_load])
             if verbose: print(f"[green]Log files successfully loaded. ({len(pp.events) = })[/green]")
-            if verbose: print("[blue]Initializing encoders...[/blue]")
+            if verbose: print("[cyan]Initializing encoders...[/cyan]")
             pp.initialize_encoders()
             if verbose: print("[green]Encoders successfully initialized.[/green]")
 
-        if verbose: print("[blue]Preprocessing dataset...[/blue]")
+        if verbose: print("[cyan]Preprocessing dataset...[/cyan]")
         dataset = pp.preprocess_dataset(
             logs_per_class=logs_per_class,
             force_same_logs_per_class=False,
@@ -203,7 +204,7 @@ def get_dataset(src: str | Preprocessor,
         )
         if verbose: print("[green]Dataset successfully preprocessed.[/green]")
         
-        if verbose: print("[blue]Saving dataset to file...[/blue]")
+        if verbose: print("[cyan]Saving dataset to file...[/cyan]")
         ds_file = dataset.save("./data/datasets/[{timestamp}]dataset.npz", True)
         if verbose: print(f"[green]Dataset successfully saved to {ds_file}.[/green]")
 
@@ -267,5 +268,11 @@ if __name__ == "__main__":
     # train model
     model.train(**TRAINING_CONFIG)
 
+    
+
     # evaluate model
     model.evaluate(EVALUATION_NAME)
+
+    model.save(MODEL_SAVE_NAME)
+
+    

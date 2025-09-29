@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import datetime
 from keras.utils import Sequence
 
-from util import hash_ndarray
+from log_classification.util import hash_ndarray
 
 class Dataset(Sequence):
     """

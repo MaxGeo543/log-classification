@@ -1,16 +1,25 @@
+from __future__ import annotations
+
 import sys
 import numpy as np
 import seaborn as sns
-from typing import Tuple, List
+import re
+import json
+import zipfile
+import os
+from typing import Tuple, List, overload
+from keras.saving import save_model, load_model
 from keras.models import Sequential
 from keras.callbacks import EarlyStopping
 from keras.layers import Input, Layer
 from keras.optimizers import Adam
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, ConfusionMatrixDisplay, classification_report
 
-from preprocessor import Preprocessor
-from dataset import Dataset
-from pseudolabeling import DynamicDataset, PseudoLabelingCallback
+from log_classification.preprocessor import Preprocessor
+from log_classification.dataset import Dataset
+from log_classification.pseudolabeling import DynamicDataset, PseudoLabelingCallback
+from log_classification.lstm import LSTMClassifierLayer
+from log_classification.transformer import TransformerBlock, TransformerClassifierLayer
 
 
 class Classifier:
@@ -44,17 +53,19 @@ class Classifier:
         :param seed: An integer defining a seed for random for reproducability, None for no seed
         """
         self.pp = preprocessor
-        self.dataset = dataset
+        self.dataset: Dataset | None = dataset
 
         self.history = None
         
-        self.training_data, self.validation_data, self.test_data, self.pseudo_label_data = dataset.stratified_split(data_split_ratios, seed)
+        self.training_data = self.validation_data = self.test_data = self.pseudo_label_data = None
+        if dataset is not None:
+            self.training_data, self.validation_data, self.test_data, self.pseudo_label_data = dataset.stratified_split(data_split_ratios, seed)
         # print(f"{len(self.training_data[0]) = }")
         # print(f"{len(self.validation_data[0]) = }")
         # print(f"{len(self.test_data[0]) = }")
         # print(f"{len(self.pseudo_label_data[0]) = }")
 
-        self.sparse = len(self.dataset.data_array_y[0]) == 1
+        sparse = len(self.dataset.data_array_y[0]) == 1
 
         self.model = Sequential()
         self.model.add(Input(shape=dataset.entry_shape))
@@ -64,7 +75,7 @@ class Classifier:
 
         self.model.compile(
             optimizer = Adam(learning_rate=learning_rate),
-            loss = f"{'sparse_' if self.sparse else ''}categorical_crossentropy",
+            loss = f"{'sparse_' if sparse else ''}categorical_crossentropy",
             metrics=metrics
         )
 
@@ -147,6 +158,7 @@ class Classifier:
             validation_data=self.validation_data,
         )
 
+    @overload
     def predict(self, X: np.ndarray) -> np.ndarray:
         """
         Predict the class of a preprocessed input
@@ -154,7 +166,36 @@ class Classifier:
         :param X: a single or batch input of preprocessed data
         :returns: a predictions for the labels/classes of the input data
         """
-        return self.model.predict(X)
+        ...
+
+    @overload
+    def predict(self, log_file_path: str, lines_start: int, lines_end: int) -> np.ndarray:
+        """
+        Directly predict labels from a log file. 
+
+        :param log_file_path: Path to the log file
+        :param lines_start: First line index
+        :param lines_end: Last line index (exclusive)
+        :return: Predictions as a numpy array
+        """
+        ...
+
+    def predict(self, *args, **kwargs) -> np.ndarray:
+        if len(args) == 1 and isinstance(args[0], np.ndarray):
+            # Case 1: directly predict from numpy array
+            X: np.ndarray = args[0]
+            return self.model.predict(X)
+        
+        elif len(args) == 3 and isinstance(args[0], str):
+            # Case 2: predict from log file range
+            log_file_path, lines_start, lines_end = args
+            x, lines = self.pp.preprocess_logfile_range(log_file_path, lines_start, lines_end)
+            #print(x)
+            return self.model.predict(x), lines
+        
+        else:
+            raise TypeError("Invalid arguments to predict()")
+
 
     def evaluate(self, 
                  filename: str, 
@@ -283,3 +324,60 @@ class Classifier:
             plt.savefig(f"{filename}-test_confusion_matrix_additional.png")
             plt.show()
         return
+    
+
+
+    def save(self, path: str = "test.keras"):
+        save_model(self.model, path, zipped=True)
+
+        json_data = {
+            "preprocessor_key": self.pp.get_key(),
+            "preprocessor_origin": self.pp.origin_path or ""
+        }
+
+        pp_config_file = "preprocessor_config.json"
+        with open(pp_config_file, "w") as f:
+            json.dump(json_data, f)
+
+        # Append new file
+        with zipfile.ZipFile(path, 'a') as zipf:
+            zipf.write(pp_config_file, arcname=pp_config_file)
+        
+        os.remove(pp_config_file)
+
+    @classmethod
+    def load(cls, path: str) -> Classifier:
+        obj = cls.__new__(cls)
+        obj.dataset = None
+        
+        pp_config_file = "preprocessor_config.json"
+        with zipfile.ZipFile(path, 'r') as zipf:
+            with zipf.open(pp_config_file) as json_file:
+                pp_config =  json.load(json_file)
+
+        pp_origin = pp_config["preprocessor_origin"]
+        pp_key = pp_config["preprocessor_key"]
+
+        # TODO: unpack preprocessor_config.json from path and load pp from the file relative to a project path configured in a config file? 
+        obj.pp = Preprocessor.load(pp_origin)
+
+        obj.history = None
+        obj.training_data = obj.validation_data = obj.test_data = obj.pseudo_label_data = None
+        obj.model = load_model(
+            path, {
+                "LSTMClassifierLayer": LSTMClassifierLayer, 
+                "TransformerBlock": TransformerBlock, 
+                "TransformerClassifierLayer": TransformerClassifierLayer
+                })
+
+        return obj
+
+if __name__ == "__main__":
+    from lstm import LSTMClassifierLayer
+    
+    pp = Preprocessor.load(r"preprocessors\[chbt2s4V18eW9fsI][20250923_151853]test_pp.json")
+    # chbt2s4V18eW9fsI
+    dtst = Dataset.load(r"data\datasets\[20250923_161907]dataset.npz")
+    clsf = Classifier(pp, dtst, LSTMClassifierLayer(4), (4, 1, 1, 0))
+
+    clsf.save()
