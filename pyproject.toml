@@ -19,14 +19,17 @@ dependencies = [
   "torch==2.7.0",
   "tqdm==4.67.1",
   "transformers==4.52.4",
-  "typing_extensions==4.13.2"
+  "typing_extensions==4.13.2",
+  "seaborn==0.13.2"
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["log_classification*", "classification_report*"]
+include = [
+  "log_classification", 
+  "log_classification.*", 
+  "classification_report",
+  "classification_report.*"
+  ]
 exclude = ["log_classification.scripts*"]   # <-- scripts won't be installed
 
-# (Optional) provide a CLI command in addition to python -m
-[project.scripts]
-log-classification = "classification_report.cli:main"
